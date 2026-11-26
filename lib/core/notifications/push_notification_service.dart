@@ -86,14 +86,26 @@ class PushNotificationService {
     final initialMessage = await _messaging.getInitialMessage();
     if (initialMessage != null) _onTap?.call(initialMessage);
 
+    // onRegistered only fires for registrations that happen after this
+    // listener is attached. FCM auto-init usually registers the device before
+    // we get here, so the current token must also be fetched explicitly.
     _messaging.onRegistered.listen(_registerToken);
+    _messaging.onTokenRefresh.listen(_registerToken);
     await registerCurrentToken();
   }
 
   Future<void> registerCurrentToken() async {
     if (canRegister?.call() == false) return;
-    await _messaging.register();
-    final token = _currentToken;
+    String? token = _currentToken;
+    if (token == null || token.isEmpty) {
+      try {
+        token = await _messaging.getToken();
+      } on FirebaseException {
+        // No token yet (no Google services, or APNs not ready on iOS).
+        // onRegistered / onTokenRefresh will deliver it later.
+        return;
+      }
+    }
     if (token != null && token.isNotEmpty) await _registerToken(token);
   }
 

@@ -391,6 +391,44 @@ class LikesPage {
   );
 }
 
+/// A like you sent that is still waiting for an answer.
+class SentLike {
+  const SentLike({
+    required this.card,
+    required this.clientSwipeId,
+    required this.likedAt,
+    required this.expiresAt,
+  });
+  final DiscoveryCard card;
+
+  /// Pass to [ApiClient.undoPass] to withdraw the like.
+  final String clientSwipeId;
+  final DateTime likedAt;
+  final DateTime expiresAt;
+  factory SentLike.fromJson(Map<String, dynamic> json) => SentLike(
+    card: DiscoveryCard.fromJson(json),
+    clientSwipeId: json['client_swipe_id'] as String,
+    likedAt: DateTime.parse(json['liked_at'] as String),
+    expiresAt: DateTime.parse(json['expires_at'] as String),
+  );
+}
+
+class SentLikesPage {
+  const SentLikesPage({this.items = const [], this.count = 0, this.nextCursor});
+  final List<SentLike> items;
+  final int count;
+  final String? nextCursor;
+  factory SentLikesPage.fromJson(Map<String, dynamic> json) => SentLikesPage(
+    items: (json['items'] as List? ?? [])
+        .map(
+          (item) => SentLike.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
+        .toList(),
+    count: json['count'] as int? ?? 0,
+    nextCursor: json['next_cursor'] as String?,
+  );
+}
+
 class ChatMessage {
   const ChatMessage({
     required this.messageId,
@@ -1143,6 +1181,17 @@ class ApiClient {
     return LikesPage.fromJson(response.data ?? const {});
   }
 
+  /// Likes you sent that have not been answered, newest first.
+  Future<SentLikesPage> sentLikes({String? cursor}) async {
+    final response = await _send(
+      () => dio.get<Map<String, dynamic>>(
+        '/likes/sent/',
+        queryParameters: {'cursor': ?cursor},
+      ),
+    );
+    return SentLikesPage.fromJson(response.data ?? const {});
+  }
+
   Future<MatchSummary> matchDetail(String matchId) async {
     final response = await _send(
       () => dio.get<Map<String, dynamic>>('/matches/$matchId/'),
@@ -1428,6 +1477,8 @@ class ApiClient {
     return BoostStatus.fromJson(response.data!);
   }
 
+  /// Withdraws the swipe with [clientSwipeId]: the latest pass (premium) or
+  /// any like that has not become a match.
   Future<void> undoPass(String clientSwipeId) async {
     await _send(
       () => dio.post<void>(

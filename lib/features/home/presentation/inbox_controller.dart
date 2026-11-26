@@ -13,12 +13,16 @@ class InboxState {
   const InboxState({
     this.page,
     this.likes,
+    this.sent,
     this.loading = false,
     this.error,
     this.likesError,
   });
   final MatchPage? page;
   final LikesPage? likes;
+
+  /// Likes you sent that are still waiting; only the count is used here.
+  final SentLikesPage? sent;
   final bool loading;
   final String? error;
   final String? likesError;
@@ -74,6 +78,7 @@ class InboxController extends Notifier<InboxState> {
           state = InboxState(
             page: state.page,
             likes: likes,
+            sent: state.sent,
             loading: state.loading,
             error: state.error,
           );
@@ -83,12 +88,27 @@ class InboxController extends Notifier<InboxState> {
           state = InboxState(
             page: state.page,
             likes: state.likes,
+            sent: state.sent,
             loading: state.loading,
             error: state.error,
             likesError: 'Likes are temporarily unavailable.',
           );
         }
       }
+      // Sent likes are informational: a failure only leaves the count stale.
+      try {
+        final sent = await api.sentLikes();
+        if (ref.mounted && generation == _generation) {
+          state = InboxState(
+            page: state.page,
+            likes: state.likes,
+            sent: sent,
+            loading: state.loading,
+            error: state.error,
+            likesError: state.likesError,
+          );
+        }
+      } catch (_) {}
     }();
     try {
       var page = await api.matchesPage();
@@ -109,6 +129,7 @@ class InboxController extends Notifier<InboxState> {
       state = InboxState(
         page: page,
         likes: state.likes,
+        sent: state.sent,
         likesError: state.likesError,
       );
     } on ApiException catch (error) {
@@ -122,6 +143,7 @@ class InboxController extends Notifier<InboxState> {
         state = InboxState(
           page: state.page,
           likes: state.likes,
+          sent: state.sent,
           error: error.code,
         );
       }
@@ -130,6 +152,7 @@ class InboxController extends Notifier<InboxState> {
         state = InboxState(
           page: state.page,
           likes: state.likes,
+          sent: state.sent,
           error: 'network_error',
         );
       }
