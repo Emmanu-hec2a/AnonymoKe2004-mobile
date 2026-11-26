@@ -46,7 +46,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
   int _voiceRequest = 0;
   final _pendingIds = <String, String>{};
   SwipeOutcome? _outcome;
-  ({DiscoveryCard card, String id})? _lastPass;
+  ({DiscoveryCard card, String id, String action})? _lastSwipe;
 
   @override
   void initState() {
@@ -176,7 +176,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
         _busy = false;
         _pendingIds.clear();
         _outcome = null;
-        _lastPass = null;
+        _lastSwipe = null;
         unawaited(_stopVoice());
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _visible) _reload();
@@ -250,7 +250,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
               _roundAction(
                 Icons.undo_rounded,
                 AppColors.gold,
-                _lastPass == null || _busy ? null : _undo,
+                _lastSwipe == null || _busy ? null : _undo,
               ),
               const SizedBox(width: 22),
               _roundAction(
@@ -710,10 +710,14 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
                 onPressed: () => _recover(error),
                 child: Text(error == null ? 'Refresh' : _recoveryLabel(error)),
               ),
-              if (_lastPass != null)
+              if (_lastSwipe != null)
                 TextButton(
                   onPressed: _busy ? null : _undo,
-                  child: const Text('Undo last pass'),
+                  child: Text(
+                    _lastSwipe!.action == 'like'
+                        ? 'Undo last like'
+                        : 'Undo last pass',
+                  ),
                 ),
             ],
           ),
@@ -755,9 +759,10 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
         return false;
       }
       _outcome = outcome;
-      _lastPass = action == 'pass'
-          ? (card: card, id: outcome.clientSwipeId ?? clientId)
-          : null;
+      // A matched like is withdrawn by closing the match, not by undo.
+      _lastSwipe = outcome.isMatch
+          ? null
+          : (card: card, id: outcome.clientSwipeId ?? clientId, action: action);
       _pendingIds.remove(key);
       return true;
     } on ApiException catch (error) {
@@ -835,7 +840,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
   }
 
   Future<void> _undo() async {
-    final last = _lastPass;
+    final last = _lastSwipe;
     if (last == null || _busy || _deckKey.currentState?.isAnimating == true) {
       return;
     }
@@ -851,7 +856,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
           .skip(_index)
           .where((card) => card.profileId != restored.profileId);
       final cards = [restored, ...remaining];
-      _lastPass = null;
+      _lastSwipe = null;
       setState(() {
         _busy = false;
         _index = 0;
@@ -864,12 +869,16 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
       if (error.code == 'premium_required') {
         context.push('/app/store', extra: 0);
       } else {
+        if (error.code == 'like_already_matched' ||
+            error.code == 'swipe_not_found') {
+          _lastSwipe = null;
+        }
         _message(_errorText(error.code));
       }
     } catch (_) {
       if (mounted) {
         setState(() => _busy = false);
-        _message('Could not undo that pass. Try again.');
+        _message('Could not undo that ${last.action}. Try again.');
       }
     }
   }
@@ -944,6 +953,9 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
       'You are moving quickly. Please wait a moment and try again.',
     'only_latest_pass_can_be_undone' =>
       'Only your most recent pass can be undone.',
+    'like_already_matched' =>
+      'You already matched. Close the conversation from Matches instead.',
+    'swipe_not_found' || 'pass_not_found' => 'Nothing to undo.',
     'swipe_already_recorded' =>
       'This action was already recorded. Refresh your feed.',
     _ => 'Could not connect. Check your connection and try again.',

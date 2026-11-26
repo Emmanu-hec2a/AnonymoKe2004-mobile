@@ -381,6 +381,45 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('unmatched like can be undone through the server', (
+    tester,
+  ) async {
+    final api = FakeApi();
+    await pumpDiscover(tester, api, FakeLocation());
+    unawaited(
+      tester.state<DiscoveryDeckState>(find.byType(DiscoveryDeck)).swipe(1),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.undo_rounded));
+    await tester.pumpAndSettle();
+    expect(api.undoCalls, 1);
+    expect(
+      tester.widget<DiscoveryDeck>(find.byType(DiscoveryDeck)).itemId,
+      firstCard.profileId,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('matched like offers no undo', (tester) async {
+    final api = FakeApi()..matched = true;
+    await pumpDiscover(tester, api, FakeLocation());
+    unawaited(
+      tester.state<DiscoveryDeckState>(find.byType(DiscoveryDeck)).swipe(1),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Keep discovering'));
+    await tester.pumpAndSettle();
+    final undo = find.byIcon(Icons.undo_rounded);
+    expect(undo, findsOneWidget);
+    expect(
+      tester.widget<IconButton>(
+        find.ancestor(of: undo, matching: find.byType(IconButton)),
+      ).onPressed,
+      isNull,
+    );
+    expect(api.undoCalls, 0);
+  });
+
   testWidgets('filter apply saves preferences before refreshing discovery', (
     tester,
   ) async {

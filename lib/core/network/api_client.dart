@@ -1428,6 +1428,8 @@ class ApiClient {
     return BoostStatus.fromJson(response.data!);
   }
 
+  /// Withdraws the swipe with [clientSwipeId]: the latest pass (premium) or
+  /// any like that has not become a match.
   Future<void> undoPass(String clientSwipeId) async {
     await _send(
       () => dio.post<void>(
