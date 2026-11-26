@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "441811643862",
+    "project_id": "anonymoke-e038b",
+    "storage_bucket": "anonymoke-e038b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:441811643862:android:0c3518a4f5e4eef6a64877",
+        "android_client_info": {
+          "package_name": "co.anonymoke.anonymoke"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "441811643862-3muphsrkr162dnomn8mi5pu97l3c7om3.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "co.anonymoke.anonymoke",
+            "certificate_hash": "92d58c1df198421fd61db03c4aca9671b847d6be"
+          }
+        },
+        {
+          "client_id": "441811643862-eekavq3aeaa7nbigi5omagv354a482h0.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCyQyK1MaDnDq21lgkaIkliJkRBBz1XfT8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "441811643862-eekavq3aeaa7nbigi5omagv354a482h0.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

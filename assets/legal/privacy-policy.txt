@@ -1,0 +1,76 @@
+Privacy Policy
+ANONYMOKE PRIVACY POLICY
+Effective Date: November 16, 2026
+Last Updated: November 16, 2026
+
+1. Introduction and Data Controller Details
+Welcome to AnonymoKe ("we," "our," or "us"). We operate an anonymity-first, location-based social discovery and dating mobile application designed for users in Kenya.
+In accordance with the Constitution of Kenya (Article 31) and the Kenya Data Protection Act, 2019 ("DPA"), AnonymoKe, acts as the Data Controller for personal data processed through the AnonymoKe mobile application and related services ("Services").
+Data Protection Contact: privacy@anonymoke.co.ke
+
+2. Personal Data We Collect
+We adhere to the principle of data minimization, collecting only what is strictly necessary to operate a safe, location-based matching service:
+
+A. Account & Authentication Data
+Email address, encrypted password hash, or OAuth authentication tokens (via Google or Apple Sign-In).
+Unique system handle (@username) and public non-unique display alias.
+Phone number and verification status (if phone/WhatsApp verification is enabled).
+
+B. Profile & Discovery Data
+Date of birth (to enforce our strict 18+ age requirement and calculate age).
+Gender identity and target gender preference.
+Optional height, short biography, prompt responses, and selected interest tags.
+15-Second Audio Capsules: Voice recordings uploaded to represent your personality during discovery.
+
+C. Visual & Identity Verification Data (Sensitive Personal Data)
+Blurred & Unblurred Profile Photos: When you upload a photo, our system automatically generates a blurred public version for anonymous discovery. Your unblurred original photo remains hidden on secure servers until mutual unmasking consent is granted.
+Identity Verification Checks: If you complete identity or liveness verification (e.g., via Smile ID), biometric liveness confirmation tokens are processed strictly to verify authenticity and prevent impersonation.
+
+D. Precise Geolocation Data
+With your explicit device permission, we collect foreground GPS coordinates to compute relative distance (distance_km) between you and nearby profiles. Other users see only approximate distance—never your exact street address or live coordinates.
+E. Communications, Moderation & Transaction Data
+In-app chat messages, swipe history (LIKE/PASS), mutual match records, and unmasking consent logs.
+Safety reports, block lists, and automated content-moderation logs (covering English, Swahili, and Sheng).
+Payment Records: If you purchase boosts, subscriptions, or features via M-Pesa (Safaricom Daraja API) or app stores, we store transaction reference codes (e.g., M-Pesa Receipt Number), item purchased, timestamp, and amount. We do not store your M-Pesa PIN or full card numbers.
+
+3. Lawful Basis for Processing (Section 30 of the Kenya DPA)
+We process your personal data under the following lawful grounds:  
+1. Explicit Consent: For processing precise GPS location, 15-second voice capsules, sensitive personal data (facial images/gender preferences), and mutual identity unmasking.
+2. Contractual Necessity: To create your account, generate your local discovery feed, facilitate matches, and deliver paid in-app features.
+3. Legal Obligation: To verify that users are 18 years or older, comply with Kenyan tax/financial recordkeeping laws, and respond to lawful court orders.
+4. Legitimate Interests: To detect fraud, prevent M-Pesa scams, enforce anti-solicitation rules, and maintain platform security.
+
+4. How We Use Your Data
+Progressive Disclosure Matching: Displaying blurred avatars, aliases, approximate distances, and voice capsules in the discovery deck, and revealing full profiles only upon mutual match consent.
+Trust & Safety Moderation: Automated and human screening of profiles, audio, and messages to block spam, harassment, underage users, and illegal commercial solicitation.
+Payment Fulfillment: Processing M-Pesa STK Push callbacks and crediting digital boosts or subscriptions.
+
+5. Data Sharing, Third-Party Processors & Cross-Border Transfers
+We never sell your personal data. We share limited data strictly with vetted Data Processors bound by Data Processing Agreements:
+Cloud Hosting & Object Storage: e.g., Cloudflare R2 / AWS for encrypted database hosting and media storage.
+Authentication & Verification Providers: Google OAuth, Apple Sign-In, email delivery providers (e.g., Resend), and identity verification partners (e.g., Smile ID).
+Payment Gateways: Safaricom PLC (Daraja M-Pesa API), Apple App Store, and Google Play Billing.
+Law Enforcement: We may disclose data when strictly required by a valid Kenyan court order, warrant, or statutory obligation.
+Where personal data is stored or processed on cloud infrastructure outside Kenya, we ensure adequate safeguards, Standard Contractual Clauses, and encryption in accordance with Section 48 of the Kenya DPA and ODPC Cross-Border Data Transfer Guidelines.
+  
+6. Data Retention and Account Deletion
+Active Account Data: Retained while your account remains active. You may pause location tracking at any time in app settings.
+Right to Erasure (In-App Deletion): When you tap "Delete Account" in Settings, your profile, location coordinates, swipe history, unblurred/blurred photos, and voice capsules are permanently purged from active databases and object storage within 30 days.
+
+Safety & Legal Exceptions:
+Minimal device/phone hash identifiers of accounts banned for severe violations (fraud, underage access, harassment, or illegal solicitation) are retained securely to prevent re-registration.
+M-Pesa and financial transaction records are retained for 7 years as required by Kenyan tax and accounting statutes.
+
+7. Security Safeguards
+We implement technical and organizational security measures including TLS 1.3 encryption in transit, AES-256 encryption at rest, role-based access controls, automated EXIF metadata stripping on uploaded photos, and screen-capture restrictions (FLAG_SECURE) in unmasked chat views. In the event of a personal data breach posing a risk to your rights, we will notify the ODPC within 72 hours and inform affected users as required by Section 43 of the DPA.
+  
+8. Your Rights Under the Kenya Data Protection Act
+As a data subject in Kenya, you have the right to:  
+1. Be Informed about how your personal data is collected and used.
+2. Access a copy of the personal data we hold about you.
+3. Rectify / Correct inaccurate or outdated profile information.  
+4. Erase / Delete your personal data ("Right to be Forgotten").
+5. Withdraw Consent at any time (e.g., revoking location access or deleting your account).
+6. Data Portability to receive your data in a structured, machine-readable format (JSON).  
+7. Object to specific processing activities.
+To exercise any of these rights, use the in-app privacy controls or email privacy@anonymoke.co.ke. We will respond within statutory timelines. If unsatisfied with our response, you have the right to lodge a complaint with the Office of the Data Protection Commissioner (ODPC).
