@@ -107,6 +107,30 @@ class BackendMatchesScreen extends ConsumerWidget {
                         builder: (_) => const IncomingLikesSheet(),
                       ),
                     ),
+                    _NewMatch(
+                      label: inbox.sent == null
+                          ? 'Sent'
+                          : '${inbox.sent!.count} sent',
+                      child: Container(
+                        width: 60,
+                        height: 60,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: AppGradients.blurredAvatar,
+                          border: Border.all(color: AppColors.coral, width: 2),
+                        ),
+                        child: const Icon(
+                          Icons.outbox_outlined,
+                          color: Colors.white,
+                          size: 23,
+                        ),
+                      ),
+                      onTap: () => showModalBottomSheet<void>(
+                        context: context,
+                        isScrollControlled: true,
+                        builder: (_) => const SentLikesSheet(),
+                      ),
+                    ),
                     ...matches
                         .where((match) => match.lastMessage == null)
                         .map(
