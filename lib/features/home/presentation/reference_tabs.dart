@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../../../core/widgets/app_surfaces.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -1279,6 +1281,10 @@ class ReferenceStoreScreen extends ConsumerStatefulWidget {
 
   final int initialProduct;
 
+  /// How long the screen keeps asking the API whether M-PESA confirmed.
+  static const confirmationWait = Duration(minutes: 2);
+  static const pollInterval = Duration(seconds: 3);
+
   @override
   ConsumerState<ReferenceStoreScreen> createState() =>
       _ReferenceStoreScreenState();
@@ -1288,6 +1294,8 @@ class _ReferenceStoreScreenState extends ConsumerState<ReferenceStoreScreen> {
   late final TextEditingController _phoneController;
   var _selectedProduct = 0;
   bool _isPaying = false;
+  bool _awaitingConfirmation = false;
+  int _pollGeneration = 0;
 
   @override
   void initState() {
@@ -1300,6 +1308,7 @@ class _ReferenceStoreScreenState extends ConsumerState<ReferenceStoreScreen> {
 
   @override
   void dispose() {
+    _pollGeneration++;
     _phoneController.dispose();
     super.dispose();
   }
@@ -1378,15 +1387,20 @@ class _ReferenceStoreScreenState extends ConsumerState<ReferenceStoreScreen> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: _isPaying ? null : _startPurchase,
+              onPressed: _isPaying || _awaitingConfirmation
+                  ? null
+                  : _startPurchase,
               child: Text(
                 _isPaying
                     ? 'Starting M-PESA...'
+                    : _awaitingConfirmation
+                    ? 'Waiting for M-PESA confirmation…'
                     : 'Pay ${_selectedProduct == 0 ? 'KES 150' : 'KES 50'} with M-PESA',
               ),
             ),
           ),
           const SizedBox(height: 12),
+          if (_awaitingConfirmation) const LinearProgressIndicator(),
           const Center(
             child: Text(
               'You will get a prompt on your phone. Enter your M-PESA PIN to\nconfirm. No auto-renewal.',
@@ -1427,7 +1441,7 @@ class _ReferenceStoreScreenState extends ConsumerState<ReferenceStoreScreen> {
         }
       }
       if (product == null) throw const ApiException('product_not_found');
-      await ref
+      final purchase = await ref
           .read(apiClientProvider)
           .createPurchase(
             productCode: product.code,
@@ -1438,6 +1452,8 @@ class _ReferenceStoreScreenState extends ConsumerState<ReferenceStoreScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('M-PESA prompt sent to your phone.')),
       );
+      final purchaseId = purchase['id'] as String?;
+      if (purchaseId != null) unawaited(_awaitConfirmation(purchaseId));
     } on ApiException catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1448,6 +1464,55 @@ class _ReferenceStoreScreenState extends ConsumerState<ReferenceStoreScreen> {
       if (mounted) setState(() => _isPaying = false);
     }
   }
+
+  /// Polls the purchase until M-PESA confirms or rejects it, then reports
+  /// the outcome. A confirmed purchase closes the store so the screen that
+  /// opened it (Boost, Premium gates) reloads with the new entitlement.
+  Future<void> _awaitConfirmation(String purchaseId) async {
+    final generation = ++_pollGeneration;
+    setState(() => _awaitingConfirmation = true);
+    final deadline = DateTime.now().add(ReferenceStoreScreen.confirmationWait);
+    String? outcome;
+    var confirmed = false;
+    while (DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(ReferenceStoreScreen.pollInterval);
+      if (!mounted || generation != _pollGeneration) return;
+      PurchaseStatus status;
+      try {
+        status = await ref.read(apiClientProvider).purchaseStatus(purchaseId);
+      } catch (_) {
+        continue;
+      }
+      if (!mounted || generation != _pollGeneration) return;
+      if (status.isPending) continue;
+      confirmed = status.isCompleted;
+      outcome = confirmed
+          ? 'Payment confirmed. Thank you.'
+          : _failureText(status);
+      break;
+    }
+    if (!mounted || generation != _pollGeneration) return;
+    setState(() => _awaitingConfirmation = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          outcome ??
+              'Still waiting for M-PESA. If you paid, your purchase appears within a minute.',
+        ),
+      ),
+    );
+    if (confirmed) context.pop(true);
+  }
+
+  static String _failureText(PurchaseStatus status) => switch (status) {
+    PurchaseStatus(status: 'expired') =>
+      'The M-PESA request expired. Try again.',
+    PurchaseStatus(resultCode: 1032) => 'You cancelled the M-PESA request.',
+    PurchaseStatus(resultCode: 1037) =>
+      'M-PESA could not reach your phone. Check it is on and try again.',
+    PurchaseStatus(resultCode: 1) => 'Insufficient M-PESA balance.',
+    _ => 'The payment did not go through. Try again.',
+  };
 
   Widget _product({
     required int index,
