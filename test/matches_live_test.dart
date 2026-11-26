@@ -66,6 +66,33 @@ class MatchesApi extends ApiClient {
   @override
   Future<LikesPage> incomingLikes({String? cursor}) async =>
       const LikesPage(count: 6);
+  List<SentLike> sent = [
+    SentLike(
+      card: const DiscoveryCard(
+        profileId: 'sent-1',
+        alias: 'Amber Fox',
+        ageYears: 25,
+        distanceBucket: '2-5 km',
+        interests: [],
+        isVerified: true,
+      ),
+      clientSwipeId: 'swipe-1',
+      likedAt: DateTime.now().subtract(const Duration(hours: 5)),
+      expiresAt: DateTime.now().add(const Duration(hours: 19)),
+    ),
+  ];
+  String? undoFailure;
+  final undone = <String>[];
+  @override
+  Future<SentLikesPage> sentLikes({String? cursor}) async =>
+      SentLikesPage(items: [...sent], count: sent.length);
+  @override
+  Future<void> undoPass(String clientSwipeId) async {
+    undone.add(clientSwipeId);
+    if (undoFailure != null) throw ApiException(undoFailure!, 409);
+    sent.removeWhere((item) => item.clientSwipeId == clientSwipeId);
+  }
+
   @override
   Future<MatchSummary> matchDetail(String id) async {
     if (closed) throw const ApiException('match_not_found', 404);
@@ -391,6 +418,47 @@ void main() {
     expect(find.text('6 likes'), findsOneWidget);
     expect(find.text('View Weekly Premium'), findsOneWidget);
     expect(find.text('Quiet Comet'), findsNothing);
+  });
+
+  testWidgets('inbox shows how many likes you sent', (tester) async {
+    await open(tester, MatchesApi(), const BackendMatchesScreen());
+    expect(find.text('1 sent'), findsOneWidget);
+  });
+
+  testWidgets('a sent like can be withdrawn after confirming', (tester) async {
+    final api = MatchesApi();
+    await open(tester, api, const Scaffold(body: SentLikesSheet()));
+    expect(find.text('1 sent'), findsOneWidget);
+    expect(find.text('Amber Fox'), findsOneWidget);
+    expect(find.textContaining('Expires in 18h'), findsOneWidget);
+    await tester.tap(find.text('Withdraw'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Keep'));
+    await tester.pumpAndSettle();
+    expect(api.undone, isEmpty);
+    expect(find.text('Amber Fox'), findsOneWidget);
+    await tester.tap(find.text('Withdraw'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Withdraw'));
+    await tester.pumpAndSettle();
+    expect(api.undone, ['swipe-1']);
+    expect(find.text('Amber Fox'), findsNothing);
+    expect(find.text('0 sent'), findsOneWidget);
+    expect(find.text('No likes waiting for an answer.'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a like that already matched leaves the sent list', (
+    tester,
+  ) async {
+    final api = MatchesApi()..undoFailure = 'like_already_matched';
+    await open(tester, api, const Scaffold(body: SentLikesSheet()));
+    await tester.tap(find.text('Withdraw'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Withdraw'));
+    await tester.pumpAndSettle();
+    expect(find.text('Amber Fox'), findsNothing);
+    expect(find.text('You already matched with Amber Fox.'), findsOneWidget);
   });
 
   testWidgets('revealed profile is cleared when permission is revoked', (

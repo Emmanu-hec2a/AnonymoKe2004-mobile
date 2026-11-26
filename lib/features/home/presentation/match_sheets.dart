@@ -226,6 +226,234 @@ class _IncomingLikesSheetState extends ConsumerState<IncomingLikesSheet> {
   );
 }
 
+/// Likes you sent that are still waiting, each with a Withdraw button.
+class SentLikesSheet extends ConsumerStatefulWidget {
+  const SentLikesSheet({super.key});
+  @override
+  ConsumerState<SentLikesSheet> createState() => _SentLikesSheetState();
+}
+
+class _SentLikesSheetState extends ConsumerState<SentLikesSheet> {
+  SentLikesPage? _page;
+  final _items = <SentLike>[];
+  String? _error, _busy;
+  bool _loading = false;
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_load());
+  }
+
+  Future<void> _load({bool more = false}) async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final page = await ref
+          .read(apiClientProvider)
+          .sentLikes(cursor: more ? _page?.nextCursor : null);
+      if (!mounted) return;
+      setState(() {
+        _page = page;
+        if (!more) _items.clear();
+        _items.addAll(
+          page.items.where(
+            (item) =>
+                !_items.any((old) => old.clientSwipeId == item.clientSwipeId),
+          ),
+        );
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not load your sent likes. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _withdraw(SentLike like) async {
+    if (_busy != null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Withdraw your like for ${like.card.alias}?'),
+        content: const Text(
+          'They will no longer see it, and the profile returns to your Discover feed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Withdraw'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() {
+      _busy = like.clientSwipeId;
+      _error = null;
+    });
+    try {
+      await ref.read(apiClientProvider).undoPass(like.clientSwipeId);
+      if (!mounted) return;
+      setState(() {
+        _items.removeWhere((item) => item.clientSwipeId == like.clientSwipeId);
+        final page = _page;
+        if (page != null) {
+          _page = SentLikesPage(
+            items: page.items,
+            count: page.count > 0 ? page.count - 1 : 0,
+            nextCursor: page.nextCursor,
+          );
+        }
+      });
+      unawaited(ref.read(inboxProvider.notifier).refresh());
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (error.code == 'like_already_matched') {
+        // The like turned into a match in the meantime; it belongs in Matches now.
+        setState(() {
+          _items.removeWhere(
+            (item) => item.clientSwipeId == like.clientSwipeId,
+          );
+          _error = 'You already matched with ${like.card.alias}.';
+        });
+        unawaited(ref.read(inboxProvider.notifier).refresh());
+      } else if (error.code == 'swipe_not_found' ||
+          error.code == 'pass_not_found') {
+        setState(() {
+          _items.removeWhere(
+            (item) => item.clientSwipeId == like.clientSwipeId,
+          );
+        });
+      } else {
+        setState(() => _error = 'Could not withdraw that like. Try again.');
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Could not withdraw that like. Try again.');
+      }
+    } finally {
+      if (mounted) setState(() => _busy = null);
+    }
+  }
+
+  static String expiresIn(DateTime expiresAt, DateTime now) {
+    final left = expiresAt.difference(now);
+    if (left.isNegative || left.inMinutes < 1) return 'Expiring now';
+    if (left.inHours < 1) return 'Expires in ${left.inMinutes}m';
+    return 'Expires in ${left.inHours}h';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * .78,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      _page == null ? 'Likes you sent' : '${_page!.count} sent',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Refresh sent likes',
+                    onPressed: _loading ? null : () => _load(),
+                    icon: const Icon(Icons.refresh),
+                  ),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ),
+              const Text(
+                'A like you do not withdraw expires on its own after 24 hours.',
+                style: TextStyle(color: AppColors.secondaryText, fontSize: 12),
+              ),
+              if (_error != null)
+                Text(_error!, style: const TextStyle(color: AppColors.coral)),
+              if (_loading) const LinearProgressIndicator(),
+              if (_page != null)
+                Expanded(
+                  child: ListView(
+                    children: [
+                      if (_items.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 40),
+                          child: Text('No likes waiting for an answer.'),
+                        ),
+                      ..._items.map(
+                        (like) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: MatchAvatar(
+                            id: like.card.profileId,
+                            url: like.card.blurredAvatarUrl,
+                          ),
+                          title: Text(
+                            like.card.alias,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            '${like.card.ageYears} · ${like.card.distanceBucket} · ${expiresIn(like.expiresAt, now)}',
+                          ),
+                          trailing: _busy == like.clientSwipeId
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : TextButton(
+                                  onPressed: _busy == null
+                                      ? () => _withdraw(like)
+                                      : null,
+                                  child: const Text('Withdraw'),
+                                ),
+                        ),
+                      ),
+                      if (_page?.nextCursor != null)
+                        TextButton(
+                          onPressed: _loading ? null : () => _load(more: true),
+                          child: const Text('Load more'),
+                        ),
+                    ],
+                  ),
+                ),
+              if (_page == null && !_loading)
+                TextButton(
+                  onPressed: () => _load(),
+                  child: const Text('Try again'),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class RevealedProfileSheet extends ConsumerStatefulWidget {
   const RevealedProfileSheet({
     required this.matchId,
