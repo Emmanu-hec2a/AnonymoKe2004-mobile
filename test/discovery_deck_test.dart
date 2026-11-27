@@ -16,7 +16,10 @@ Future<void> pumpDeck(
           child: DiscoveryDeck(
             key: key,
             itemId: 1,
-            onSwipe: commits.add,
+            onSwipe: (_) =>
+                fail("A browsing gesture must never commit a decision"),
+            onBrowse: commits.add,
+            canBrowsePrevious: true,
             nextChild: const ColoredBox(color: Colors.green),
             child: const ColoredBox(key: ValueKey('front'), color: Colors.blue),
           ),
@@ -76,7 +79,16 @@ void main() {
   testWidgets('rapid button taps produce only one swipe', (tester) async {
     final key = GlobalKey<DiscoveryDeckState>();
     final commits = <int>[];
-    await pumpDeck(tester, key, commits);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: DiscoveryDeck(
+          key: key,
+          itemId: 1,
+          onSwipe: commits.add,
+          child: const SizedBox(),
+        ),
+      ),
+    );
     key.currentState!.swipe(1);
     key.currentState!.swipe(1);
     key.currentState!.swipe(-1);

@@ -1,6 +1,7 @@
 import '../../../core/widgets/loading_skeleton.dart';
 import '../../../core/widgets/profile_image.dart';
 import 'tab_refresh.dart';
+import 'match_sheets.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,12 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
   late Future<List<DiscoveryCard>> _request;
   final AudioPlayer _audioPlayer = AudioPlayer();
   int _index = 0;
+  String? _nextCursor;
+  bool _paging = false, _hadCandidates = false;
+  bool get _inputLocked => _busy || _loading;
+  String? _pageError;
+  final _decidedIds = <String>{};
+  final _usedCursors = <String>{};
   double _distanceKm = 5;
   RangeValues _ageRange = const RangeValues(24, 34);
   String? _playingProfileId;
@@ -67,7 +74,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
     if (state != AppLifecycleState.resumed) unawaited(_stopVoice());
-    if (_foreground && _visible && !_busy) _reload();
+    if (_foreground && _visible && !_busy) _refreshVisible();
   }
 
   @override
@@ -84,13 +91,14 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
             DateTime.now().difference(_lastLoaded!) >
                 const Duration(seconds: 30))) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _visible) _reload();
+        if (mounted && _visible) _refreshVisible();
       });
     }
   }
 
   Future<List<DiscoveryCard>> _loadCards() async {
     final epoch = ++_loadEpoch;
+    _paging = false;
     final owner = ref.read(authControllerProvider).session?.userId;
     bool current() =>
         mounted &&
@@ -126,9 +134,25 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
           .read(discoveryLocationProvider)
           .sync(api, profileId: profile.profileId);
       if (!current()) return const [];
-      final loaded = await api.discovery();
+      final page = await api.discoveryPage();
+      final loaded = page.items;
       if (!current()) return const [];
-      _cards = loaded;
+      // A fresh server query is authoritative, including likes withdrawn elsewhere.
+      _decidedIds.clear();
+      final previousId = _index < _cards.length
+          ? _cards[_index].profileId
+          : null;
+      _cards = loaded
+          .where((card) => !_decidedIds.contains(card.profileId))
+          .toList();
+      final previousIndex = _cards.indexWhere(
+        (card) => card.profileId == previousId,
+      );
+      _index = previousIndex < 0 ? 0 : previousIndex;
+      _nextCursor = page.nextCursor;
+      _usedCursors.clear();
+      _pageError = null;
+      _hadCandidates = _hadCandidates || loaded.isNotEmpty;
       _lastLoaded = DateTime.now();
       _feedDirty = false;
       _preload(_cards, 0);
@@ -142,9 +166,59 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
     if (!mounted || _busy || _loading) return;
     unawaited(_stopVoice());
     setState(() {
-      _index = 0;
       _request = _loadCards();
     });
+  }
+
+  void _refreshVisible() {
+    if (_feedDirty || _cards.isEmpty || _index >= _cards.length) {
+      _reload();
+      return;
+    }
+    if (_lastLoaded != null &&
+        DateTime.now().difference(_lastLoaded!) < const Duration(seconds: 30)) {
+      return;
+    }
+    unawaited(_refreshCurrentCard());
+  }
+
+  Future<void> _refreshCurrentCard() async {
+    if (_loading || _busy || _paging || _index >= _cards.length) return;
+    final epoch = _loadEpoch;
+    final owner = ref.read(authControllerProvider).session?.userId;
+    final id = _cards[_index].profileId;
+    try {
+      final fresh = await ref.read(apiClientProvider).discoveryProfile(id);
+      if (!mounted ||
+          epoch != _loadEpoch ||
+          owner != ref.read(authControllerProvider).session?.userId) {
+        return;
+      }
+      final position = _cards.indexWhere((card) => card.profileId == id);
+      if (position >= 0) {
+        setState(() {
+          _cards[position] = fresh;
+        });
+      }
+    } on ApiException catch (error) {
+      if (mounted &&
+          epoch == _loadEpoch &&
+          owner == ref.read(authControllerProvider).session?.userId) {
+        if (error.statusCode == 401 ||
+            error.statusCode == 403 ||
+            const {
+              'profile_not_eligible',
+              'profile_not_found',
+              'profile_paused',
+              'account_not_active',
+            }.contains(error.code)) {
+          _feedDirty = true;
+          _reload();
+        }
+      }
+    } catch (_) {
+      /* A temporary refresh failure retains the browsing position. */
+    }
   }
 
   Future<void> _stopVoice() async {
@@ -175,6 +249,12 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
         _profile = null;
         _busy = false;
         _pendingIds.clear();
+        _decidedIds.clear();
+        _usedCursors.clear();
+        _nextCursor = null;
+        _hadCandidates = false;
+        _paging = false;
+        _pageError = null;
         _outcome = null;
         _lastSwipe = null;
         unawaited(_stopVoice());
@@ -185,6 +265,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
     );
     ref.listen(discoveryRefreshSignal, (_, _) {
       _feedDirty = true;
+      _hadCandidates = false;
       _cards = const [];
       if (_visible && _foreground && !_busy) {
         setState(() {
@@ -196,9 +277,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
     return FutureBuilder<List<DiscoveryCard>>(
       future: _request,
       builder: (context, snapshot) {
-        final cards = _feedDirty
-            ? const <DiscoveryCard>[]
-            : snapshot.data ?? const <DiscoveryCard>[];
+        final cards = _feedDirty ? const <DiscoveryCard>[] : _cards;
         if (snapshot.connectionState == ConnectionState.waiting &&
             cards.isEmpty) {
           return AppPage(
@@ -212,6 +291,9 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
         }
         if (snapshot.hasError) return _emptyState(context, snapshot.error);
         if (cards.isEmpty || _index >= cards.length) {
+          if (_nextCursor != null || _paging || _pageError != null) {
+            return _moreProfilesState(context);
+          }
           return _emptyState(context, null);
         }
         return _cardView(context, cards);
@@ -229,8 +311,12 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
           DiscoveryDeck(
             key: _deckKey,
             itemId: card.profileId,
-            enabled: !_busy,
+            enabled: !_inputLocked,
             confirmSwipe: (direction) => _submitSwipe(card, direction),
+            canBrowse: _prepareBrowse,
+            onBrowse: _finishBrowse,
+            canBrowsePrevious: _index > 0,
+            previousChild: _index > 0 ? _profileCard(cards[_index - 1]) : null,
             onSwipe: (_) => _finishSwipe(card, cards.length),
             onDetails: () => _showDetails(card),
             nextChild: _index + 1 < cards.length
@@ -239,7 +325,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
             child: _profileCard(card),
           ),
           const SizedBox(height: 18),
-          if (_busy)
+          if (_inputLocked)
             const Padding(
               padding: EdgeInsets.only(bottom: 8),
               child: LinearProgressIndicator(),
@@ -250,19 +336,19 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
               _roundAction(
                 Icons.undo_rounded,
                 AppColors.gold,
-                _lastSwipe == null || _busy ? null : _undo,
+                _lastSwipe == null || _inputLocked ? null : _undo,
               ),
               const SizedBox(width: 22),
               _roundAction(
                 Icons.close,
                 AppColors.danger,
-                _busy ? null : () => _deckKey.currentState?.swipe(-1),
+                _inputLocked ? null : () => _deckKey.currentState?.swipe(-1),
               ),
               const SizedBox(width: 22),
               _roundAction(
                 Icons.favorite,
                 AppColors.coral,
-                _busy ? null : () => _deckKey.currentState?.swipe(1),
+                _inputLocked ? null : () => _deckKey.currentState?.swipe(1),
               ),
             ],
           ),
@@ -677,51 +763,95 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
         ? null
         : 'network_error';
     return AppPage(
-      child: Column(
-        children: [
-          _topBar(context),
-          const SizedBox(height: 80),
-          Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.explore_off_outlined,
-                size: 60,
-                color: AppColors.accent,
-              ),
-              const SizedBox(height: 20),
-              Text(
-                error == null ? 'No one nearby yet.' : _errorText(error),
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              Text(
-                error == null
-                    ? 'Widen your filters or check back for new people nearby.'
-                    : 'Your profile and private photos stay protected while you resolve this.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: AppColors.muted),
-              ),
-              const SizedBox(height: 20),
-              OutlinedButton(
-                onPressed: () => _recover(error),
-                child: Text(error == null ? 'Refresh' : _recoveryLabel(error)),
-              ),
-              if (_lastSwipe != null)
-                TextButton(
-                  onPressed: _busy ? null : _undo,
+      child: SingleChildScrollView(
+        child: Column(
+          children: [
+            _topBar(context),
+            const SizedBox(height: 60),
+            Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.explore_off_outlined,
+                  size: 60,
+                  color: AppColors.accent,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  error == null
+                      ? _hadCandidates
+                            ? 'You’re all caught up nearby'
+                            : 'No profiles match your preferences yet'
+                      : _errorText(error),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  error == null
+                      ? _cards.isNotEmpty
+                            ? 'Your likes are saved. You can browse undecided profiles again or adjust your filters.'
+                            : 'Your likes are saved. New people will appear here as they become available.'
+                      : 'Your profile and private photos stay protected while you resolve this.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.muted),
+                ),
+                const SizedBox(height: 20),
+                if (error == null && _cards.isNotEmpty)
+                  FilledButton(
+                    onPressed: () => setState(() => _index = 0),
+                    child: const Text('Browse again'),
+                  ),
+                if (error == null) ...[
+                  OutlinedButton(
+                    onPressed: () => showModalBottomSheet<void>(
+                      context: context,
+                      isScrollControlled: true,
+                      builder: (_) => const SentLikesSheet(),
+                    ),
+                    child: const Text('View likes sent'),
+                  ),
+                  TextButton(
+                    onPressed: () => _showFilters(),
+                    child: const Text('Adjust discovery filters'),
+                  ),
+                ],
+                if (_paging)
+                  const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: CircularProgressIndicator(),
+                  ),
+                if (_pageError != null)
+                  Text(_pageError!, textAlign: TextAlign.center),
+                OutlinedButton(
+                  onPressed: _paging
+                      ? null
+                      : () => _pageError != null && _nextCursor != null
+                            ? _loadMore()
+                            : _recover(error),
                   child: Text(
-                    _lastSwipe!.action == 'like'
-                        ? 'Undo last like'
-                        : 'Undo last pass',
+                    _pageError != null
+                        ? 'Retry loading profiles'
+                        : error == null
+                        ? 'Check for new people'
+                        : _recoveryLabel(error),
                   ),
                 ),
-            ],
-          ),
-        ],
+                if (_lastSwipe != null)
+                  TextButton(
+                    onPressed: _busy ? null : _undo,
+                    child: Text(
+                      _lastSwipe!.action == 'like'
+                          ? 'Undo last like'
+                          : 'Undo last pass',
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -738,14 +868,144 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
     );
   }
 
+  Future<bool> _loadMore() async {
+    if (_paging || _nextCursor == null) return !_paging;
+    final epoch = _loadEpoch;
+    final owner = ref.read(authControllerProvider).session?.userId;
+    final cursor = _nextCursor!;
+    setState(() {
+      _paging = true;
+      _pageError = null;
+    });
+    try {
+      final page = await ref
+          .read(apiClientProvider)
+          .discoveryPage(cursor: cursor);
+      if (!mounted ||
+          epoch != _loadEpoch ||
+          owner != ref.read(authControllerProvider).session?.userId) {
+        return false;
+      }
+      if (page.nextCursor == cursor ||
+          (page.nextCursor != null && _usedCursors.contains(page.nextCursor))) {
+        throw const ApiException('cursor_invalid');
+      }
+      setState(() {
+        _usedCursors.add(cursor);
+        final existing = _cards.map((card) => card.profileId).toSet();
+        _cards = [
+          ..._cards,
+          ...page.items.where(
+            (card) =>
+                !_decidedIds.contains(card.profileId) &&
+                existing.add(card.profileId),
+          ),
+        ];
+        _nextCursor = page.nextCursor;
+        _hadCandidates = _hadCandidates || page.items.isNotEmpty;
+      });
+      _preload(_cards, _index);
+      return true;
+    } catch (error) {
+      if (mounted &&
+          epoch == _loadEpoch &&
+          owner == ref.read(authControllerProvider).session?.userId) {
+        setState(
+          () => _pageError =
+              error is ApiException && error.code == 'cursor_invalid'
+              ? 'Your browsing session changed. Check for new people to continue.'
+              : 'Could not load the next profiles. Your place is kept.',
+        );
+        if (error is ApiException && error.code == 'cursor_invalid') {
+          _nextCursor = null;
+        }
+      }
+      return false;
+    } finally {
+      if (mounted && epoch == _loadEpoch) setState(() => _paging = false);
+    }
+  }
+
+  bool _prepareBrowse(int direction) {
+    if (_inputLocked || (direction > 0 && _index == 0)) return false;
+    unawaited(_stopVoice());
+    return true;
+  }
+
+  void _prefetchIfNeeded() {
+    if (!mounted ||
+        !_visible ||
+        !_foreground ||
+        _loading ||
+        _paging ||
+        _pageError != null ||
+        _nextCursor == null ||
+        _cards.length - _index > 3) {
+      return;
+    }
+    unawaited(_loadMore());
+  }
+
+  Widget _moreProfilesState(BuildContext context) {
+    return AppPage(
+      child: Column(
+        children: [
+          _topBar(context),
+          const SizedBox(height: 96),
+          if (_paging) const CircularProgressIndicator(),
+          const SizedBox(height: 20),
+          Text(
+            _paging ? 'Loading more profiles' : 'More profiles could not load',
+            style: Theme.of(context).textTheme.titleLarge,
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _pageError ?? 'You can keep browsing the profiles already loaded.',
+            style: const TextStyle(color: AppColors.muted),
+            textAlign: TextAlign.center,
+          ),
+          const SizedBox(height: 24),
+          if (_cards.isNotEmpty)
+            OutlinedButton(
+              onPressed: () {
+                setState(
+                  () => _index = (_index - 1).clamp(0, _cards.length - 1),
+                );
+                _preload(_cards, _index);
+              },
+              child: const Text('Previous profile'),
+            ),
+          if (!_paging)
+            FilledButton(
+              onPressed: () => _nextCursor == null ? _reload() : _loadMore(),
+              child: const Text('Retry loading profiles'),
+            ),
+          const SizedBox(height: 48),
+        ],
+      ),
+    );
+  }
+
+  void _finishBrowse(int direction) {
+    setState(
+      () =>
+          _index = (_index + (direction < 0 ? 1 : -1)).clamp(0, _cards.length),
+    );
+    _preload(_cards, _index);
+  }
+
   Future<bool> _submitSwipe(DiscoveryCard card, int direction) async {
-    if (_busy) return false;
+    if (_inputLocked) return false;
     final owner = ref.read(authControllerProvider).session?.userId;
     final action = direction < 0 ? 'pass' : 'like';
     final key = '${card.profileId}:$action';
     final clientId = _pendingIds.putIfAbsent(key, () => const Uuid().v4());
     setState(() => _busy = true);
     await _stopVoice();
+    if (!mounted || owner != ref.read(authControllerProvider).session?.userId) {
+      return false;
+    }
     try {
       final outcome = await ref
           .read(apiClientProvider)
@@ -785,12 +1045,20 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
   void _finishSwipe(DiscoveryCard card, int count) {
     final outcome = _outcome;
     setState(() {
-      _index++;
+      _decidedIds.add(card.profileId);
+      _cards = _cards
+          .where((item) => item.profileId != card.profileId)
+          .toList();
       _busy = false;
       _outcome = null;
     });
     _preload(_cards, _index);
-    if (_index >= count) _reload();
+    if (_index >= _cards.length && _nextCursor != null) {
+      unawaited(_loadMore());
+    }
+    if (outcome?.isMatch != true) {
+      _message(_lastSwipe?.action == 'like' ? 'Like sent' : 'Profile passed');
+    }
     if (outcome?.isMatch == true && outcome?.matchId != null) {
       showDialog<void>(
         context: context,
@@ -823,6 +1091,7 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
           owner != ref.read(authControllerProvider).session?.userId) {
         return;
       }
+      _prefetchIfNeeded();
       final cache = ref.read(profileImageCacheProvider);
       for (final card in cards.skip(index + 1).take(2)) {
         final url = card.blurredAvatarUrl;
@@ -852,10 +1121,11 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
           .read(apiClientProvider)
           .discoveryProfile(last.card.profileId);
       if (!mounted) return;
-      final remaining = _cards
-          .skip(_index)
-          .where((card) => card.profileId != restored.profileId);
+      final remaining = _cards.where(
+        (card) => card.profileId != restored.profileId,
+      );
       final cards = [restored, ...remaining];
+      _decidedIds.remove(restored.profileId);
       _lastSwipe = null;
       setState(() {
         _busy = false;
@@ -894,6 +1164,9 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
       });
       if (!mounted) return false;
       _busy = false;
+      _hadCandidates = false;
+      _cards = const [];
+      _index = 0;
       _reload();
       return true;
     } on ApiException catch (error) {
@@ -926,6 +1199,8 @@ class _BackendDiscoverScreenState extends ConsumerState<BackendDiscoverScreen>
   }
 
   String _errorText(String code) => switch (code) {
+    'cursor_invalid' =>
+      'Your browsing session expired. Refresh to see available profiles.',
     'location_consent_required' =>
       'Allow location processing to find people nearby.',
     'sensitive_data_consent_required' || 'matching_preferences_required' =>

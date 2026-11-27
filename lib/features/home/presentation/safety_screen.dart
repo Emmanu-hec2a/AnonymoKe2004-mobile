@@ -14,6 +14,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import 'safety_controller.dart';
 import 'widgets/safety_hold_button.dart';
+import 'widgets/safety_completion_notice.dart';
 
 final verificationLauncherProvider = Provider<Future<bool> Function(Uri)>(
   (_) =>
@@ -30,6 +31,7 @@ class BackendSafetyScreen extends ConsumerStatefulWidget {
 class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
     with WidgetsBindingObserver {
   bool _busy = false;
+  final _dismissedCompletions = <String>{};
   bool _visible = true, _foreground = true;
   ApiClient get _api => ref.read(apiClientProvider);
   @override
@@ -314,6 +316,38 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
   Widget build(BuildContext context) {
     final state = ref.watch(safetyProvider);
     final overview = state.overview;
+    ref.listen(
+      authControllerProvider.select((value) => value.session?.userId),
+      (before, after) {
+        if (before != after) {
+          setState(() {
+            _dismissedCompletions.clear();
+            _busy = false;
+          });
+        }
+      },
+    );
+    final incoming =
+        overview?.incomingAlerts
+            .where(
+              (alert) =>
+                  const ['active', 'panic'].contains(alert.sessionStatus),
+            )
+            .toList() ??
+        const <IncomingSafetyAlert>[];
+    final alertPlans = incoming
+        .map((alert) => alert.dateSessionId)
+        .whereType<String>()
+        .toSet();
+    final shared =
+        overview?.sharedPlans
+            .where(
+              (plan) =>
+                  const ['active', 'panic'].contains(plan.status) &&
+                  !alertPlans.contains(plan.id),
+            )
+            .toList() ??
+        const <DateSafetySession>[];
     return PinnedTabBody(
       header: Row(
         children: [
@@ -355,7 +389,7 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
             if (overview == null && state.error == null)
               const ContentSkeleton(content: SkeletonContent.safety),
             if (overview != null) ...[
-              for (final alert in overview.incomingAlerts)
+              for (final alert in incoming)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 12),
                   child: IncomingAlertCard(
@@ -368,32 +402,43 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
               if (overview.incomingAlertCount > overview.incomingAlerts.length)
                 TextButton(
                   onPressed: () => _openHistory(false),
-                  child: Text('View all ${overview.incomingAlertCount} alerts'),
+                  child: Text(
+                    'View all ${overview.incomingAlertCount} active alerts',
+                  ),
                 ),
+              if (overview.recentCompletion case final notice?)
+                if (!_dismissedCompletions.contains(notice.session.id))
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: SafetyCompletionNotice(
+                      key: ValueKey(notice.session.id),
+                      notice: notice,
+                      onDismiss: () {
+                        if (mounted) {
+                          setState(
+                            () => _dismissedCompletions.add(notice.session.id),
+                          );
+                        }
+                      },
+                      onHistory: _openActivity,
+                    ),
+                  ),
+              if (overview.activeDate == null)
+                ..._sharedActivity(overview, shared),
               _panicCard(overview),
               const SizedBox(height: 12),
               if (overview.activeDate case final session?)
-                _planCard(session)
+                _planCard(session, alert: _activeAlert(overview, session))
               else
                 _setupCard(overview.contact),
               const SizedBox(height: 12),
+              if (overview.activeDate != null)
+                ..._sharedActivity(overview, shared),
               _verificationCard(state),
               const SizedBox(height: 12),
               _tips(),
               const SizedBox(height: 12),
               _contactCard(overview.contact),
-              for (final plan in overview.sharedPlans)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: SharedPlanCard(plan: plan),
-                ),
-              if (overview.sharedPlanCount > overview.sharedPlans.length)
-                TextButton(
-                  onPressed: () => _openHistory(true),
-                  child: Text(
-                    'View all ${overview.sharedPlanCount} shared plans',
-                  ),
-                ),
               const SizedBox(height: 12),
               InkWell(
                 onTap: () async {
@@ -417,11 +462,47 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
                   ),
                 ),
               ),
-              for (final alert in overview.recentAlerts)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: _deliveryCard(alert),
+              const SizedBox(height: 12),
+              InkWell(
+                onTap: _openActivity,
+                borderRadius: BorderRadius.circular(18),
+                child: _panel(
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.history_rounded,
+                        color: AppColors.accentSoft,
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Safety history',
+                              style: TextStyle(fontWeight: FontWeight.w800),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              overview.historyCount == 0
+                                  ? 'Completed plans and check-ins'
+                                  : '${overview.historyCount} completed ${overview.historyCount == 1 ? 'plan' : 'plans'}',
+                              style: const TextStyle(
+                                color: AppColors.secondaryText,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.secondaryText,
+                      ),
+                    ],
+                  ),
                 ),
+              ),
             ],
           ],
         ),
@@ -429,10 +510,41 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
     );
   }
 
+  List<Widget> _sharedActivity(
+    SafetyOverview overview,
+    List<DateSafetySession> plans,
+  ) {
+    if (plans.isEmpty && overview.sharedPlanCount == 0) return const [];
+    return [
+      const Padding(
+        padding: EdgeInsets.only(bottom: 10),
+        child: Text(
+          'Plans shared with you',
+          style: TextStyle(
+            color: AppColors.secondaryText,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+      for (final plan in plans)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: SharedPlanCard(plan: plan),
+        ),
+      if (overview.sharedPlanCount > overview.sharedPlans.length)
+        TextButton(
+          onPressed: () => _openHistory(true),
+          child: Text(
+            'View all ${overview.sharedPlanCount} active shared plans',
+          ),
+        ),
+    ];
+  }
+
   void _openHistory(bool plans) => showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => SafetyHistorySheet(plans: plans),
+    builder: (_) => SafetyHistorySheet(plans: plans, activeOnly: true),
   );
 
   Widget _panicCard(SafetyOverview overview) {
@@ -503,7 +615,22 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
     );
   }
 
-  Widget _planCard(DateSafetySession session) => _panel(
+  void _openActivity() async {
+    await context.push('/app/safety/history');
+    if (mounted) unawaited(ref.read(safetyProvider.notifier).refresh());
+  }
+
+  PanicAlert? _activeAlert(SafetyOverview overview, DateSafetySession session) {
+    for (final alert in overview.recentAlerts) {
+      if (alert.dateSessionId == session.id &&
+          const ['active', 'panic'].contains(alert.sessionStatus)) {
+        return alert;
+      }
+    }
+    return null;
+  }
+
+  Widget _planCard(DateSafetySession session, {PanicAlert? alert}) => _panel(
     child: Column(
       children: [
         Row(
@@ -531,6 +658,11 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
         _dateRow('Where', session.venueLabel),
         _dateRow('Trusted contact', session.trustedContactName),
         _dateRow('Check-in due', safetyDate(context, session.checkInDueAt)),
+        if (alert != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: _deliveryStatus(alert),
+          ),
         if (session.approximateArea != null)
           _dateRow('Shared area', areaLabel(session.approximateArea!)),
         const SizedBox(height: 10),
@@ -753,13 +885,10 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
     ),
   );
 
-  Widget _deliveryCard(PanicAlert alert) {
-    final resolved = alert.sessionStatus == 'safe';
+  Widget _deliveryStatus(PanicAlert alert) {
     final acknowledged =
         alert.acknowledgedAt != null || alert.status == 'acknowledged';
-    final text = resolved
-        ? 'Safe check-in shared with your trusted contact.'
-        : acknowledged
+    final text = acknowledged
         ? 'Your trusted contact acknowledged your alert.'
         : switch (alert.pushStatus) {
             'push_accepted' =>
@@ -772,22 +901,22 @@ class _BackendSafetyScreenState extends ConsumerState<BackendSafetyScreen>
               'Alert saved in-app. Push attempts failed. You can retry.',
             _ => 'Alert saved in-app. Push delivery is not confirmed.',
           };
-    return _panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(text, style: const TextStyle(color: AppColors.secondaryText)),
-          if (!resolved &&
-              !acknowledged &&
-              ['failed', 'unavailable'].contains(alert.pushStatus))
-            TextButton(
-              onPressed: _busy
-                  ? null
-                  : () => _perform(() => _api.retrySafetyPush(alert.id)),
-              child: const Text('Retry push notification'),
-            ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          text,
+          style: const TextStyle(color: AppColors.secondaryText, fontSize: 12),
+        ),
+        if (!acknowledged &&
+            ['failed', 'unavailable'].contains(alert.pushStatus))
+          TextButton(
+            onPressed: _busy
+                ? null
+                : () => _perform(() => _api.retrySafetyPush(alert.id)),
+            child: const Text('Retry push notification'),
+          ),
+      ],
     );
   }
 }
@@ -1261,8 +1390,13 @@ class _PlanEditorState extends State<_PlanEditor> {
 }
 
 class SafetyHistorySheet extends ConsumerStatefulWidget {
-  const SafetyHistorySheet({required this.plans, super.key});
+  const SafetyHistorySheet({
+    required this.plans,
+    this.activeOnly = false,
+    super.key,
+  });
   final bool plans;
+  final bool activeOnly;
   @override
   ConsumerState<SafetyHistorySheet> createState() => _SafetyHistorySheetState();
 }
@@ -1310,6 +1444,7 @@ class _SafetyHistorySheetState extends ConsumerState<SafetyHistorySheet>
       if (widget.plans) {
         final page = await api.sharedSafetyPlans(
           cursor: reset ? null : _cursor,
+          activeOnly: widget.activeOnly,
         );
         if (!mounted) return;
         if (reset) _plans.clear();
@@ -1320,6 +1455,7 @@ class _SafetyHistorySheetState extends ConsumerState<SafetyHistorySheet>
       } else {
         final page = await api.incomingSafetyAlerts(
           cursor: reset ? null : _cursor,
+          activeOnly: widget.activeOnly,
         );
         if (!mounted) return;
         if (reset) _alerts.clear();
@@ -1367,7 +1503,13 @@ class _SafetyHistorySheetState extends ConsumerState<SafetyHistorySheet>
               children: [
                 Expanded(
                   child: Text(
-                    widget.plans ? 'Shared date plans' : 'Safety alerts',
+                    widget.activeOnly
+                        ? widget.plans
+                              ? 'Active shared plans'
+                              : 'Active safety alerts'
+                        : widget.plans
+                        ? 'Shared date plans'
+                        : 'Safety alerts',
                     style: const TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.w800,

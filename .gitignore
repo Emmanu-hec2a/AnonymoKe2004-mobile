@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Keep release symbol bundles private and backed up outside source control.
+/artifacts/symbols/

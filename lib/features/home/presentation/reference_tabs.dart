@@ -108,6 +108,18 @@ class _ReferenceDiscoverScreenState
       itemId: _cardIndex,
       nextChild: _discoverCard(nextName),
       onSwipe: (_) => setState(() => _cardIndex++),
+      canBrowsePrevious: _cardIndex > 0,
+      onBrowse: (direction) =>
+          setState(() => _cardIndex += direction < 0 ? 1 : -1),
+      previousChild: _cardIndex > 0
+          ? _discoverCard(
+              [
+                'Westlands Nomad',
+                'Kilimani Sunset',
+                'Karen Coffee Snob',
+              ][(_cardIndex - 1) % 3],
+            )
+          : null,
       child: _discoverCard(name),
     );
   }

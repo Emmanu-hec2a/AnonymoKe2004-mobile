@@ -108,12 +108,12 @@ class FakeApi extends ApiClient {
     ),
   ];
   @override
-  Future<List<DiscoveryCard>> discovery({
+  Future<DiscoveryPage> discoveryPage({
     String? cursor,
     int? maxDistanceKm,
     int? minAge,
     int? maxAge,
-  }) async => [firstCard, secondCard];
+  }) async => const DiscoveryPage(items: [firstCard, secondCard]);
   @override
   Future<DiscoveryCard> discoveryProfile(String id) async =>
       id == firstCard.profileId ? firstCard : secondCard;
@@ -412,9 +412,11 @@ void main() {
     final undo = find.byIcon(Icons.undo_rounded);
     expect(undo, findsOneWidget);
     expect(
-      tester.widget<IconButton>(
-        find.ancestor(of: undo, matching: find.byType(IconButton)),
-      ).onPressed,
+      tester
+          .widget<IconButton>(
+            find.ancestor(of: undo, matching: find.byType(IconButton)),
+          )
+          .onPressed,
       isNull,
     );
     expect(api.undoCalls, 0);

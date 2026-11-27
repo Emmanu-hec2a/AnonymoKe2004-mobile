@@ -241,7 +241,16 @@ class OnboardingPhotoController extends Notifier<OnboardingPhotoState> {
   late Set<PhotoDraft> _track;
   Object attach() {
     _active = true;
-    return _lease = Object();
+    final lease = _lease = Object();
+    scheduleMicrotask(() {
+      if (ref.mounted &&
+          identical(_lease, lease) &&
+          _active &&
+          state.draft == null) {
+        unawaited(_select((device) => device.recoverPhoto()));
+      }
+    });
+    return lease;
   }
 
   void detach(Object lease) {
@@ -255,7 +264,10 @@ class OnboardingPhotoController extends Notifier<OnboardingPhotoState> {
     });
   }
 
-  Future<void> pick(ImageSource source) async {
+  Future<void> pick(ImageSource source) =>
+      _select((device) => device.pickPhoto(source));
+
+  Future<void> _select(Future<XFile?> Function(ProfileDevice) select) async {
     if (state.busy || !_active) return;
     final generation = _generation, lease = _lease;
     bool current() =>
@@ -267,7 +279,7 @@ class OnboardingPhotoController extends Notifier<OnboardingPhotoState> {
     final prepare = ref.read(photoPreparerProvider);
     state = state.copyWith(busy: true);
     try {
-      final file = await device.pickPhoto(source);
+      final file = await select(device);
       if (file == null || !current()) return;
       final draft = await prepare(file);
       if (!current()) {
@@ -277,7 +289,7 @@ class OnboardingPhotoController extends Notifier<OnboardingPhotoState> {
       final previous = _owned;
       _owned = draft;
       _track.add(draft);
-      state = state.copyWith(draft: draft, saved: false, rejected: false);
+      state = OnboardingPhotoState(draft: draft, busy: true);
       if (previous != null) {
         _track.remove(previous);
         unawaited(previous.release().catchError((Object _) {}));

@@ -491,7 +491,14 @@ class _ProfileMediaSheetState extends ConsumerState<ProfileMediaSheet>
       if (mounted) {
         setState(() {
           _photo = bytes;
-          _draft = ProfileUpload(file: file, kind: 'avatar');
+          _draft = ProfileUpload(
+            file: XFile.fromData(
+              bytes,
+              name: file.name,
+              mimeType: file.mimeType,
+            ),
+            kind: 'avatar',
+          );
         });
       }
     } on ApiException catch (e) {

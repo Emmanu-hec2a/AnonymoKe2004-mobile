@@ -10,6 +10,7 @@ import '../../../core/network/api_client.dart';
 
 abstract class ProfileDevice {
   Future<XFile?> pickPhoto(ImageSource source);
+  Future<XFile?> recoverPhoto() async => null;
   Future<void> startRecording();
   Future<XFile?> stopRecording();
   Stream<double> get amplitudes => const Stream.empty();
@@ -22,7 +23,9 @@ final profileDeviceProvider = Provider<ProfileDevice Function()>(
 );
 
 class NativeProfileDevice implements ProfileDevice {
-  final _picker = ImagePicker();
+  NativeProfileDevice({ImagePicker? picker})
+    : _picker = picker ?? ImagePicker();
+  final ImagePicker _picker;
   AudioRecorder? _recorder;
   final _recordPaths = <String>[];
   bool _disposed = false;
@@ -41,10 +44,6 @@ class NativeProfileDevice implements ProfileDevice {
             .map((_) => true);
   @override
   Future<XFile?> pickPhoto(ImageSource source) async {
-    if (Platform.isAndroid) {
-      final lost = await _picker.retrieveLostData();
-      if (lost.files?.isNotEmpty == true) return lost.files!.first;
-    }
     return _picker.pickImage(
       source: source,
       maxWidth: 2048,
@@ -52,6 +51,13 @@ class NativeProfileDevice implements ProfileDevice {
       imageQuality: 90,
       requestFullMetadata: false,
     );
+  }
+
+  @override
+  Future<XFile?> recoverPhoto() async {
+    if (!Platform.isAndroid) return null;
+    final lost = await _picker.retrieveLostData();
+    return lost.files?.isNotEmpty == true ? lost.files!.first : null;
   }
 
   @override
@@ -134,11 +140,26 @@ class ProfileUpload {
   final bool disguise;
   Map<String, dynamic>? _ticket;
   bool _uploaded = false;
+  String? _rejected;
+  Future<MediaAssetSummary>? _sending;
   String? get uploadId => _ticket?['upload_id'] as String?;
   Future<MediaAssetSummary> send(
     ApiClient api, {
     void Function()? checkCurrent,
+  }) {
+    if (_sending != null) return _sending!;
+    late final Future<MediaAssetSummary> operation;
+    operation = _send(api, checkCurrent: checkCurrent).whenComplete(() {
+      if (identical(_sending, operation)) _sending = null;
+    });
+    return _sending = operation;
+  }
+
+  Future<MediaAssetSummary> _send(
+    ApiClient api, {
+    void Function()? checkCurrent,
   }) async {
+    if (_rejected != null) throw ApiException(_rejected!);
     checkCurrent?.call();
     final size = await file.length();
     if (size <= 0 || size > (kind == 'avatar' ? 10485760 : 5242880)) {
@@ -167,7 +188,15 @@ class ProfileUpload {
         _uploaded = true;
       }
       checkCurrent?.call();
-      return await api.completeMediaUpload(_ticket!['upload_id'] as String);
+      final result = await api.completeMediaUpload(
+        _ticket!['upload_id'] as String,
+      );
+      if (result.status == 'rejected') {
+        _rejected = result.rejectionCode.isEmpty
+            ? 'photo_validation_failed'
+            : result.rejectionCode;
+      }
+      return result;
     } on ApiException catch (e) {
       if (e.code == 'media_upload_expired') {
         _ticket = null;

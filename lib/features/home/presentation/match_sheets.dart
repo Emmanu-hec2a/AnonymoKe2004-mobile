@@ -367,7 +367,9 @@ class _SentLikesSheetState extends ConsumerState<SentLikesSheet> {
                 children: [
                   Expanded(
                     child: Text(
-                      _page == null ? 'Likes you sent' : '${_page!.count} sent',
+                      _page == null
+                          ? 'Likes sent'
+                          : "${_page!.count} ${_page!.count == 1 ? 'like' : 'likes'} sent",
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w800,

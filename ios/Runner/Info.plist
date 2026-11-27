@@ -61,11 +61,11 @@
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>AnonymoKE uses your location to find people nearby. Your exact location is never shown to other people.</string>
 	<key>NSCameraUsageDescription</key>
-	<string>Take a private profile photo. Others see a blurred version until mutual reveal.</string>
+	<string>Take a private profile photo or share a photo in a mutually revealed chat. Your profile photo stays blurred until mutual reveal.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Choose a photo for your private profile.</string>
+	<string>Choose a photo for your private profile or share one in a mutually revealed chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Record your 15-second voice capsule.</string>
+	<string>Record your voice capsule and private voice notes for your matches.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

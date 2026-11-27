@@ -20,12 +20,14 @@ class AnonymoKEApp extends ConsumerStatefulWidget {
   ConsumerState<AnonymoKEApp> createState() => _AnonymoKEAppState();
 }
 
-class _AnonymoKEAppState extends ConsumerState<AnonymoKEApp> {
+class _AnonymoKEAppState extends ConsumerState<AnonymoKEApp>
+    with WidgetsBindingObserver {
   String? _pendingPath;
   StreamSubscription<Uri>? _authLinks;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     try {
       _authLinks = ref.read(authLinkStreamProvider).listen((uri) {
         if (mounted &&
@@ -46,11 +48,25 @@ class _AnonymoKEAppState extends ConsumerState<AnonymoKEApp> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     unawaited(_authLinks?.cancel());
     super.dispose();
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !demoMode) {
+      unawaited(_initializeNotifications());
+      unawaited(
+        ref
+            .read(pushNotificationServiceProvider)
+            .registerCurrentToken(refresh: true),
+      );
+    }
+  }
+
   Future<void> _initializeNotifications() async {
+    if (demoMode || !mounted) return;
     try {
       await ref
           .read(pushNotificationServiceProvider)

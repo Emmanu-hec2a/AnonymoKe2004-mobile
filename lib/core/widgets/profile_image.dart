@@ -26,7 +26,11 @@ class ProfileImageCache {
   static String identity(String url) {
     final uri = Uri.parse(url);
     final parameters = Map<String, String>.from(uri.queryParameters)
-      ..removeWhere((key, _) => key.toLowerCase().startsWith('x-amz-'));
+      ..removeWhere((key, _) {
+        final lower = key.toLowerCase();
+        return lower.startsWith('x-amz-') ||
+            const {'awsaccesskeyid', 'signature', 'expires'}.contains(lower);
+      });
     return uri
         .replace(
           queryParameters: parameters.isEmpty ? null : parameters,
@@ -111,7 +115,14 @@ class ProfileImage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cache = ref.watch(profileImageCacheProvider);
+    final owner = ref.watch(
+      authControllerProvider.select((s) => s.session?.userId),
+    );
     return Image(
+      // Preserve decoded pixels while the URL lease rotates for this same
+      // account and asset. A different asset/account gets a fresh Image state.
+      key: ValueKey((owner, ProfileImageCache.identity(url), decodeSize)),
+      gaplessPlayback: true,
       image: cache.image(url, decodeSize),
       fit: fit,
       errorBuilder: (_, _, _) {

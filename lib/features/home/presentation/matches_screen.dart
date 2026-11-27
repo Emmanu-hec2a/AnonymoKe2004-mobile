@@ -109,8 +109,8 @@ class BackendMatchesScreen extends ConsumerWidget {
                     ),
                     _NewMatch(
                       label: inbox.sent == null
-                          ? 'Sent'
-                          : '${inbox.sent!.count} sent',
+                          ? 'Likes sent'
+                          : "${inbox.sent!.count} ${inbox.sent!.count == 1 ? 'like' : 'likes'} sent",
                       child: Container(
                         width: 60,
                         height: 60,

@@ -116,6 +116,7 @@ class SafetyApi extends ApiClient {
   @override
   Future<RecordPage<IncomingSafetyAlert>> incomingSafetyAlerts({
     String? cursor,
+    bool activeOnly = false,
   }) async {
     pages.add(cursor);
     return RecordPage(

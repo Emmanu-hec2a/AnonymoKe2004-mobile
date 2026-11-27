@@ -6,6 +6,10 @@ class DiscoveryDeck extends StatefulWidget {
     required this.itemId,
     required this.child,
     required this.onSwipe,
+    this.onBrowse,
+    this.canBrowse,
+    this.canBrowsePrevious = false,
+    this.previousChild,
     this.nextChild,
     this.height = 500,
     this.confirmSwipe,
@@ -18,6 +22,10 @@ class DiscoveryDeck extends StatefulWidget {
   final Widget child;
   final Widget? nextChild;
   final ValueChanged<int> onSwipe;
+  final ValueChanged<int>? onBrowse;
+  final bool Function(int)? canBrowse;
+  final bool canBrowsePrevious;
+  final Widget? previousChild;
   final double height;
   final Future<bool> Function(int)? confirmSwipe;
   final VoidCallback? onDetails;
@@ -35,6 +43,7 @@ class DiscoveryDeckState extends State<DiscoveryDeck>
   double _width = 1;
   double _verticalDistance = 0;
   bool _settling = false;
+  bool _browsing = false;
 
   bool get isAnimating => _settling;
 
@@ -56,22 +65,44 @@ class DiscoveryDeckState extends State<DiscoveryDeck>
 
   Future<void> swipe(int direction) async {
     if (_settling || direction == 0 || !widget.enabled) return;
+    _browsing = false;
+    await _settle(direction.sign * (_width + 24), commit: direction.sign);
+  }
+
+  Future<void> browse(int direction) async {
+    if (_settling ||
+        direction == 0 ||
+        !widget.enabled ||
+        widget.onBrowse == null) {
+      return;
+    }
+    _browsing = true;
+    if (widget.canBrowse?.call(direction) == false) return;
+    if (direction > 0 && !widget.canBrowsePrevious) {
+      await _settle(0);
+      return;
+    }
     await _settle(direction.sign * (_width + 24), commit: direction.sign);
   }
 
   Future<void> _settle(double target, {int? commit}) async {
     if (_settling) return;
     _settling = true;
-    // Start saving and moving together. Retain the card until the save resolves.
-    final confirmation = commit != null && widget.confirmSwipe != null
+    final item = widget.itemId;
+    // Browsing commits locally. Only explicit Like/Pass decisions await a save.
+    final confirm = _browsing ? null : widget.confirmSwipe;
+    final onCommit = _browsing ? widget.onBrowse : widget.onSwipe;
+    final confirmation = commit != null && confirm != null
         ? Future<bool>.sync(
-            () => widget.confirmSwipe!(commit!),
+            () => confirm(commit!),
           ).catchError((Object _) => false)
         : Future<bool>.value(true);
     if (MediaQuery.disableAnimationsOf(context)) {
       final accepted = await confirmation;
       if (!mounted) return;
-      if (commit != null && accepted) widget.onSwipe(commit);
+      if (commit != null && accepted && widget.itemId == item) {
+        onCommit?.call(commit);
+      }
       _offset.value = 0;
       _settling = false;
       return;
@@ -100,11 +131,15 @@ class DiscoveryDeckState extends State<DiscoveryDeck>
       }
       // The next card has already moved into the resting position.
       // Promote it and reset the transform in the same frame.
-      if (commit != null) widget.onSwipe(commit);
+      if (commit != null && widget.itemId == item) onCommit?.call(commit);
       _offset.value = 0;
     } on TickerCanceled {
       // The route was disposed during a transition.
     } finally {
+      if (mounted) {
+        _motion = null;
+        _offset.value = 0;
+      }
       _settling = false;
     }
   }
@@ -139,6 +174,7 @@ class DiscoveryDeckState extends State<DiscoveryDeck>
                 behavior: HitTestBehavior.opaque,
                 onHorizontalDragUpdate: (details) {
                   if (_settling || !widget.enabled) return;
+                  _browsing = true;
                   _offset.value = (_offset.value + details.delta.dx).clamp(
                     -_width,
                     _width,
@@ -153,7 +189,7 @@ class DiscoveryDeckState extends State<DiscoveryDeck>
                       distance.abs() > 12 &&
                       velocity.sign == distance.sign;
                   if (distance.abs() >= _width * .23 || fling) {
-                    swipe(distance.sign.toInt());
+                    browse(distance.sign.toInt());
                   } else {
                     _settle(0);
                   }
@@ -163,34 +199,35 @@ class DiscoveryDeckState extends State<DiscoveryDeck>
                 },
                 child: Stack(
                   children: [
-                    if (widget.nextChild != null)
-                      Positioned.fill(
-                        bottom: 12,
-                        child: AnimatedBuilder(
-                          animation: _offset,
-                          child: ExcludeSemantics(
+                    Positioned.fill(
+                      bottom: 12,
+                      child: AnimatedBuilder(
+                        animation: _offset,
+                        builder: (context, _) {
+                          final adjacent = _browsing && _offset.value > 0
+                              ? widget.previousChild
+                              : widget.nextChild;
+                          final child = ExcludeSemantics(
                             child: IgnorePointer(
-                              child: RepaintBoundary(child: widget.nextChild),
-                            ),
-                          ),
-                          builder: (context, child) {
-                            final progress =
-                                (_offset.value.abs() / (_width * .8)).clamp(
-                                  0.0,
-                                  1.0,
-                                );
-                            return Transform.translate(
-                              offset: Offset(0, 12 * (1 - progress)),
-                              child: Transform.scale(
-                                scaleX: .965 + .035 * progress,
-                                scaleY: 1,
-                                alignment: Alignment.topCenter,
-                                child: child,
+                              child: RepaintBoundary(
+                                child: adjacent ?? const SizedBox.shrink(),
                               ),
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                          final progress = (_offset.value.abs() / (_width * .8))
+                              .clamp(0.0, 1.0);
+                          return Transform.translate(
+                            offset: Offset(0, 12 * (1 - progress)),
+                            child: Transform.scale(
+                              scaleX: .965 + .035 * progress,
+                              scaleY: 1,
+                              alignment: Alignment.topCenter,
+                              child: child,
+                            ),
+                          );
+                        },
                       ),
+                    ),
                     Positioned.fill(
                       bottom: 12,
                       child: AnimatedBuilder(

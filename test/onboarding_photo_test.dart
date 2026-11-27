@@ -17,6 +17,7 @@ import 'discover_live_test.dart' show Adapter, jsonResponse, MemoryStore;
 import 'onboarding_about_you_test.dart'
     show OnboardingApi, OnboardingAuth, fixturePixel, openAbout;
 
+const replacementId = '00000000-0000-4000-8000-000000000002';
 const photoId = '00000000-0000-4000-8000-000000000001';
 
 class Draft extends PhotoDraft {
@@ -31,6 +32,16 @@ class Draft extends PhotoDraft {
 class Picker extends ProfileDevice {
   final sources = <ImageSource>[];
   bool cancel = false, deny = false;
+  XFile? lost;
+  int recoveries = 0;
+  @override
+  Future<XFile?> recoverPhoto() async {
+    recoveries++;
+    final file = lost;
+    lost = null;
+    return file;
+  }
+
   Completer<XFile?>? pending;
   @override
   Future<XFile?> pickPhoto(ImageSource source) async {
@@ -55,9 +66,14 @@ class PhotoApi extends OnboardingApi {
   String rejection = 'exactly_one_face_required';
   bool failComplete = false, wrongId = false;
   Completer<void>? ticketWait;
+  Completer<MediaAssetSummary>? statusWait;
   Map<String, dynamic>? ticketBody;
   MediaAssetSummary summary(String status) => MediaAssetSummary(
-    id: wrongId ? '00000000-0000-4000-8000-000000000099' : photoId,
+    id: wrongId
+        ? '00000000-0000-4000-8000-000000000099'
+        : tickets > 1
+        ? replacementId
+        : photoId,
     kind: 'avatar',
     status: status,
     rejectionCode: status == 'rejected' ? rejection : '',
@@ -77,7 +93,10 @@ class PhotoApi extends OnboardingApi {
       'size_bytes': sizeBytes,
     };
     await ticketWait?.future;
-    return {'upload_id': photoId, 'upload_url': 'https://storage.test/photo'};
+    return {
+      'upload_id': tickets > 1 ? replacementId : photoId,
+      'upload_url': 'https://storage.test/photo',
+    };
   }
 
   @override
@@ -98,6 +117,7 @@ class PhotoApi extends OnboardingApi {
   Future<MediaAssetSummary> mediaUploadStatus(String id) async {
     reads++;
     calls.add('status');
+    if (statusWait != null) return statusWait!.future;
     return summary(
       statuses.length > 1 ? statuses.removeAt(0) : statuses.single,
     );
@@ -212,6 +232,95 @@ Future<(int, int, double)> pixelStats(Uint8List bytes) async {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  testWidgets(
+    'a rejected photo can be replaced and accepted without clearing app data',
+    (tester) async {
+      final h = await openPhoto(
+        tester,
+        api: PhotoApi()..statuses = ['rejected'],
+      );
+      await choose(tester);
+      h.photo.saveDraft();
+      await expectLater(h.onboarding.complete(), throwsA(isA<ApiException>()));
+      final old = h.state.draft!;
+      expect(h.state.rejected, true);
+      await choose(tester);
+      expect(identical(h.state.draft, old), false);
+      expect(h.state.rejected, false);
+      expect(h.state.error, isNull);
+      h.api.statuses = ['ready'];
+      h.photo.saveDraft();
+      await h.onboarding.complete();
+      await tester.pumpAndSettle();
+      expect(h.api.tickets, 2);
+      expect(h.api.puts, 2);
+      expect(
+        h.api.profiles.single['onboarding_photo_upload_id'],
+        replacementId,
+      );
+    },
+  );
+  testWidgets(
+    'a connection failure on the old photo cannot poison a new photo',
+    (tester) async {
+      final h = await openPhoto(tester, api: PhotoApi()..failComplete = true);
+      await choose(tester);
+      h.photo.saveDraft();
+      await expectLater(h.onboarding.complete(), throwsA(isA<ApiException>()));
+      await choose(tester);
+      h.api.failComplete = false;
+      h.photo.saveDraft();
+      await h.onboarding.complete();
+      await tester.pumpAndSettle();
+      expect(h.api.tickets, 2);
+      expect(h.api.puts, 2);
+      expect(
+        h.api.profiles.single['onboarding_photo_upload_id'],
+        replacementId,
+      );
+    },
+  );
+  testWidgets(
+    'late rejection from an old photo cannot mark its replacement rejected',
+    (tester) async {
+      final h = await openPhoto(
+        tester,
+        api: PhotoApi()..statusWait = Completer(),
+      );
+      await choose(tester);
+      h.photo.saveDraft();
+      final operation = h.onboarding.complete();
+      final check = expectLater(
+        operation,
+        throwsA(
+          isA<ApiException>().having((e) => e.code, 'code', 'photo_changed'),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      await choose(tester);
+      h.api.statusWait!.complete(h.api.summary('rejected'));
+      await check;
+      await tester.pumpAndSettle();
+      expect(h.state.rejected, false);
+      expect(h.state.error, isNull);
+    },
+  );
+  testWidgets(
+    'recovering an interrupted picker does not replace an explicit new selection',
+    (tester) async {
+      final picker = Picker()..lost = XFile.fromData(fixturePixel());
+      final h = await openPhoto(tester, picker: picker);
+      expect(h.state.draft, isNotNull);
+      expect(picker.recoveries, 1);
+      final recovered = h.state.draft;
+      await choose(tester);
+      expect(identical(h.state.draft, recovered), false);
+      expect(picker.recoveries, 1);
+      expect(picker.sources, [ImageSource.gallery]);
+    },
+  );
 
   testWidgets('a mismatched upload receipt cannot finalize a different photo', (
     tester,

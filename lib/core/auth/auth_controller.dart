@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../network/api_client.dart';
+import '../config/build_config.dart';
 import '../notifications/push_notification_service.dart';
 import '../storage/session_store.dart';
 import 'session.dart';
@@ -21,13 +22,21 @@ final apiClientProvider = Provider<ApiClient>(
   (ref) => ApiClient(store: ref.watch(sessionStoreProvider)),
 );
 
-final pushNotificationServiceProvider = Provider<PushNotificationService>(
-  (ref) => PushNotificationService(
+final pushNotificationServiceProvider = Provider<PushNotificationService>((
+  ref,
+) {
+  final service = PushNotificationService(
     ref.watch(apiClientProvider),
     canRegister: () =>
-        ref.mounted && ref.read(authControllerProvider).session != null,
-  ),
-);
+        !demoMode &&
+        ref.mounted &&
+        ref.read(authControllerProvider).session != null,
+    accountId: () =>
+        ref.mounted ? ref.read(authControllerProvider).session?.userId : null,
+  );
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 final authControllerProvider = NotifierProvider<AuthController, AuthState>(
   AuthController.new,

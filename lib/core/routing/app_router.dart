@@ -12,6 +12,7 @@ import '../../features/home/presentation/matches_screen.dart';
 import '../../features/home/presentation/reference_tabs.dart';
 import '../../features/home/presentation/safety_screen.dart';
 import '../../features/home/presentation/safety_management_screen.dart';
+import '../../features/home/presentation/safety_history_screen.dart';
 import '../../features/home/presentation/profile_screen.dart';
 import '../../features/onboarding/presentation/onboarding_shell.dart';
 import '../../features/legal/domain/legal_document.dart';
@@ -85,6 +86,10 @@ final routerProvider = Provider<GoRouter>((ref) {
                     ? const ReferenceSafetyScreen()
                     : const BackendSafetyScreen(),
                 routes: [
+                  _screenRoute(
+                    path: 'history',
+                    builder: (context, state) => const SafetyHistoryScreen(),
+                  ),
                   _screenRoute(
                     path: 'management',
                     builder: (context, state) => const SafetyManagementScreen(),

@@ -1,5 +1,6 @@
 import 'package:anonymoke/core/auth/auth_controller.dart';
 import 'package:anonymoke/core/network/api_client.dart';
+import 'package:anonymoke/core/network/chat_connection.dart';
 import 'package:anonymoke/core/notifications/notification_route.dart';
 import 'package:anonymoke/core/theme/app_theme.dart';
 import 'package:anonymoke/features/home/presentation/matches_screen.dart';
@@ -41,6 +42,15 @@ ChatMessage message(
 );
 
 class MatchesApi extends ApiClient {
+  @override
+  Future<void> markMessagesDelivered(String id, List<String> ids) async {}
+  @override
+  Future<ChatActivity> chatActivity(
+    String id,
+    String sessionId, {
+    required bool active,
+    bool typing = false,
+  }) async => const ChatActivity(active: false);
   MatchesApi()
     : super(store: MemoryStore(), baseUrl: 'https://api.test/api/v1');
   MatchSummary current = match();
@@ -113,6 +123,8 @@ class MatchesApi extends ApiClient {
     required String matchId,
     required String body,
     String? clientMessageId,
+    String? replyToId,
+    String? attachmentId,
   }) async {
     sentIds.add(clientMessageId);
     if (failSend) throw const ApiException('network_error');
@@ -171,7 +183,10 @@ Future<void> open(
   }
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [apiClientProvider.overrideWithValue(api)],
+      overrides: [
+        apiClientProvider.overrideWithValue(api),
+        chatConnectionProvider.overrideWithValue((_, _) => NoChatConnection()),
+      ],
       child: MaterialApp(
         theme: AppTheme.dark(),
         home: Scaffold(body: screen),
@@ -327,7 +342,7 @@ void main() {
       expect(api.sentIds[0], api.sentIds[1]);
       expect(api.sentIds[0], isNotNull);
       expect(find.text('Kind hello'), findsOneWidget);
-      expect(find.text('Checking…'), findsOneWidget);
+      expect(find.byTooltip('Checking message'), findsOneWidget);
       await tester.pump(const Duration(seconds: 5));
       await tester.pumpAndSettle();
       expect(find.text('Kind hello'), findsOneWidget);
@@ -422,13 +437,13 @@ void main() {
 
   testWidgets('inbox shows how many likes you sent', (tester) async {
     await open(tester, MatchesApi(), const BackendMatchesScreen());
-    expect(find.text('1 sent'), findsOneWidget);
+    expect(find.text('1 like sent'), findsOneWidget);
   });
 
   testWidgets('a sent like can be withdrawn after confirming', (tester) async {
     final api = MatchesApi();
     await open(tester, api, const Scaffold(body: SentLikesSheet()));
-    expect(find.text('1 sent'), findsOneWidget);
+    expect(find.text('1 like sent'), findsOneWidget);
     expect(find.text('Amber Fox'), findsOneWidget);
     expect(find.textContaining('Expires in 18h'), findsOneWidget);
     await tester.tap(find.text('Withdraw'));
@@ -443,7 +458,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.undone, ['swipe-1']);
     expect(find.text('Amber Fox'), findsNothing);
-    expect(find.text('0 sent'), findsOneWidget);
+    expect(find.text('0 likes sent'), findsOneWidget);
     expect(find.text('No likes waiting for an answer.'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });

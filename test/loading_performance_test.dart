@@ -340,7 +340,7 @@ void main() {
     container.read(routerProvider).go('/app/discover');
     await tester.pumpAndSettle();
     unawaited(
-      tester.state<DiscoveryDeckState>(find.byType(DiscoveryDeck)).swipe(1),
+      tester.state<DiscoveryDeckState>(find.byType(DiscoveryDeck)).browse(-1),
     );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Profile').last);

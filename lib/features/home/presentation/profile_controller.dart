@@ -40,6 +40,7 @@ class ProfileState {
 class ProfileController extends Notifier<ProfileState> {
   Future<void>? _running;
   bool _active = true;
+  int _stableTicks = 0;
   int _epoch = 0;
   @override
   ProfileState build() {
@@ -47,8 +48,21 @@ class ProfileController extends Notifier<ProfileState> {
     ref.watch(authControllerProvider.select((s) => s.session?.userId));
     _epoch++;
     _running = null;
+    _stableTicks = 0;
     final timer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (_active) unawaited(refresh());
+      final pending = state.media.any(
+        (item) => const {
+          'pending',
+          'uploading',
+          'uploaded',
+          'queued',
+          'processing',
+        }.contains(item.status),
+      );
+      if (_active) {
+        _stableTicks++;
+        if (pending || _stableTicks >= 8) unawaited(refresh());
+      }
     });
     ref.onDispose(timer.cancel);
     Future.microtask(() {
@@ -126,6 +140,7 @@ class ProfileController extends Notifier<ProfileState> {
       final entitlements = await perks;
       final assets = await media;
       if (!ref.mounted || epoch != _epoch) return;
+      _stableTicks = 0;
       state = ProfileState(
         profile: profile,
         entitlements: entitlements,

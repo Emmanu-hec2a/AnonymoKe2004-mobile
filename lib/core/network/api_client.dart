@@ -23,6 +23,12 @@ class MagicLinkDelivery {
   final int resendAfterSeconds, expiresInSeconds;
 }
 
+class DiscoveryPage {
+  const DiscoveryPage({required this.items, this.nextCursor});
+  final List<DiscoveryCard> items;
+  final String? nextCursor;
+}
+
 class DiscoveryCard {
   const DiscoveryCard({
     required this.profileId,
@@ -350,9 +356,10 @@ class MatchPage {
 }
 
 class MessagePage {
-  const MessagePage({this.items = const [], this.nextCursor});
+  const MessagePage({this.items = const [], this.nextCursor, this.activity});
   final List<ChatMessage> items;
   final String? nextCursor;
+  final ChatActivity? activity;
   factory MessagePage.fromJson(Map<String, dynamic> json) => MessagePage(
     items: (json['items'] as List? ?? [])
         .map(
@@ -361,6 +368,11 @@ class MessagePage {
         )
         .toList(),
     nextCursor: json['next_cursor'] as String?,
+    activity: json['activity'] is Map
+        ? ChatActivity.fromJson(
+            Map<String, dynamic>.from(json['activity'] as Map),
+          )
+        : null,
   );
 }
 
@@ -437,6 +449,10 @@ class ChatMessage {
     required this.moderationStatus,
     required this.createdAt,
     this.readAt,
+    this.deliveredAt,
+    this.updatedAt,
+    this.replyTo,
+    this.attachment,
   });
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) {
@@ -447,6 +463,18 @@ class ChatMessage {
       moderationStatus: json['moderation_status'] as String? ?? 'queued',
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? ''),
       readAt: DateTime.tryParse(json['read_at'] as String? ?? ''),
+      deliveredAt: DateTime.tryParse(json['delivered_at'] as String? ?? ''),
+      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
+      replyTo: json['reply_to'] is Map
+          ? ChatReply.fromJson(
+              Map<String, dynamic>.from(json['reply_to'] as Map),
+            )
+          : null,
+      attachment: json['attachment'] is Map
+          ? ChatAttachment.fromJson(
+              Map<String, dynamic>.from(json['attachment'] as Map),
+            )
+          : null,
     );
   }
 
@@ -456,6 +484,70 @@ class ChatMessage {
   final String moderationStatus;
   final DateTime? createdAt;
   final DateTime? readAt;
+  final DateTime? deliveredAt;
+  final DateTime? updatedAt;
+  final ChatReply? replyTo;
+  final ChatAttachment? attachment;
+}
+
+class ChatReply {
+  const ChatReply({
+    required this.id,
+    required this.senderId,
+    required this.body,
+    this.kind = 'text',
+    this.available = true,
+  });
+  factory ChatReply.fromJson(Map<String, dynamic> value) => ChatReply(
+    id: value['message_id'] as String,
+    senderId: value['sender_profile_id'] as String,
+    body: value['body'] as String? ?? '',
+    kind: value['kind'] as String? ?? 'text',
+    available: value['available'] as bool? ?? true,
+  );
+  final String id, senderId, body, kind;
+  final bool available;
+}
+
+class ChatAttachment {
+  const ChatAttachment({
+    required this.id,
+    required this.kind,
+    required this.status,
+    this.url,
+    this.durationMs = 0,
+    this.voiceDisguised = false,
+  });
+  factory ChatAttachment.fromJson(Map<String, dynamic> value) => ChatAttachment(
+    id: value['id'] as String,
+    kind: value['kind'] as String,
+    status: value['status'] as String,
+    url: value['url'] as String?,
+    durationMs: value['duration_ms'] as int? ?? 0,
+    voiceDisguised: value['voice_disguised'] as bool? ?? false,
+  );
+  final String id, kind, status;
+  final String? url;
+  final int durationMs;
+  final bool voiceDisguised;
+}
+
+class ChatActivity {
+  const ChatActivity({
+    this.active,
+    this.typing = false,
+    this.activeTtl = 0,
+    this.typingTtl = 0,
+  });
+  factory ChatActivity.fromJson(Map<String, dynamic> data) => ChatActivity(
+    active: data['active'] as bool?,
+    typing: data['typing'] as bool? ?? false,
+    activeTtl: data['active_ttl'] as int? ?? 0,
+    typingTtl: data['typing_ttl'] as int? ?? 0,
+  );
+  final bool? active;
+  final bool typing;
+  final int activeTtl, typingTtl;
 }
 
 class TrustedContact {
@@ -498,6 +590,8 @@ class DateSafetySession {
     this.ownerAlias = 'Someone you trust',
     this.approximateArea,
     this.overdueAt,
+    this.updatedAt,
+    this.viewerRole = 'owner',
   });
 
   factory DateSafetySession.fromJson(Map<String, dynamic> json) {
@@ -515,6 +609,8 @@ class DateSafetySession {
       ownerAlias: json['owner_alias'] as String? ?? 'Someone you trust',
       approximateArea: json['approximate_area'] as Map<String, dynamic>?,
       overdueAt: DateTime.tryParse(json['overdue_at'] as String? ?? ''),
+      updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
+      viewerRole: json['viewer_role'] as String? ?? 'owner',
     );
   }
 
@@ -530,6 +626,24 @@ class DateSafetySession {
   final String ownerAlias;
   final Map<String, dynamic>? approximateArea;
   final DateTime? overdueAt;
+  final DateTime? updatedAt;
+  final String viewerRole;
+}
+
+class SafetyCompletion {
+  const SafetyCompletion({
+    required this.session,
+    required this.expiresInSeconds,
+  });
+  factory SafetyCompletion.fromJson(Map<String, dynamic> json) =>
+      SafetyCompletion(
+        session: DateSafetySession.fromJson(
+          Map<String, dynamic>.from(json['session'] as Map),
+        ),
+        expiresInSeconds: (json['expires_in_seconds'] as num?)?.toInt() ?? 0,
+      );
+  final DateSafetySession session;
+  final int expiresInSeconds;
 }
 
 class PanicAlert {
@@ -578,6 +692,7 @@ class IncomingSafetyAlert {
     this.sessionStatus = 'panic',
     this.safeAt,
     this.approximateArea,
+    this.dateSessionId,
   });
 
   factory IncomingSafetyAlert.fromJson(Map<String, dynamic> json) {
@@ -593,6 +708,7 @@ class IncomingSafetyAlert {
       sessionStatus: json['session_status'] as String? ?? 'panic',
       safeAt: DateTime.tryParse(json['safe_at'] as String? ?? ''),
       approximateArea: json['approximate_area'] as Map<String, dynamic>?,
+      dateSessionId: json['date_session'] as String?,
     );
   }
 
@@ -606,6 +722,7 @@ class IncomingSafetyAlert {
   final String sessionStatus;
   final DateTime? safeAt;
   final Map<String, dynamic>? approximateArea;
+  final String? dateSessionId;
 }
 
 class BlockedProfile {
@@ -669,6 +786,8 @@ class SafetyOverview {
     this.sharedPlans = const [],
     this.incomingAlertCount = 0,
     this.sharedPlanCount = 0,
+    this.historyCount = 0,
+    this.recentCompletion,
   });
 
   factory SafetyOverview.fromJson(Map<String, dynamic> json) {
@@ -685,6 +804,12 @@ class SafetyOverview {
       incomingAlertCount:
           json['incoming_alert_count'] as int? ?? rawIncoming.length,
       sharedPlanCount: json['shared_plan_count'] as int? ?? 0,
+      historyCount: json['history_count'] as int? ?? 0,
+      recentCompletion: json['recent_completion'] is Map
+          ? SafetyCompletion.fromJson(
+              Map<String, dynamic>.from(json['recent_completion'] as Map),
+            )
+          : null,
       contact: json['trusted_contact'] is Map<String, dynamic>
           ? TrustedContact.fromJson(
               json['trusted_contact'] as Map<String, dynamic>,
@@ -714,6 +839,8 @@ class SafetyOverview {
   final List<DateSafetySession> sharedPlans;
   final int incomingAlertCount;
   final int sharedPlanCount;
+  final int historyCount;
+  final SafetyCompletion? recentCompletion;
 }
 
 class RecordPage<T> {
@@ -1102,11 +1229,12 @@ class ApiClient {
     String path,
     T Function(Map<String, dynamic>) decode, {
     String? cursor,
+    Map<String, dynamic> query = const {},
   }) async {
     final response = await _send(
       () => dio.get<Map<String, dynamic>>(
         path,
-        queryParameters: {'paged': '1', 'cursor': ?cursor},
+        queryParameters: {'paged': '1', 'cursor': ?cursor, ...query},
       ),
     );
     return RecordPage.fromJson(response.data ?? const {}, decode);
@@ -1114,14 +1242,25 @@ class ApiClient {
 
   Future<RecordPage<IncomingSafetyAlert>> incomingSafetyAlerts({
     String? cursor,
+    bool activeOnly = false,
   }) => _recordPage(
     '/me/safety/alerts/',
     IncomingSafetyAlert.fromJson,
     cursor: cursor,
+    query: activeOnly ? {'active': '1'} : const {},
   );
-  Future<RecordPage<DateSafetySession>> sharedSafetyPlans({String? cursor}) =>
+  Future<RecordPage<DateSafetySession>> sharedSafetyPlans({
+    String? cursor,
+    bool activeOnly = false,
+  }) => _recordPage(
+    '/me/safety/shared-plans/',
+    DateSafetySession.fromJson,
+    cursor: cursor,
+    query: activeOnly ? {'active': '1'} : const {},
+  );
+  Future<RecordPage<DateSafetySession>> safetyHistory({String? cursor}) =>
       _recordPage(
-        '/me/safety/shared-plans/',
+        '/me/safety/history/',
         DateSafetySession.fromJson,
         cursor: cursor,
       );
@@ -1213,11 +1352,18 @@ class ApiClient {
     required String matchId,
     required String body,
     String? clientMessageId,
+    String? replyToId,
+    String? attachmentId,
   }) async {
     final response = await _send(
       () => dio.post<Map<String, dynamic>>(
         '/matches/$matchId/messages/',
-        data: {'body': body, 'client_message_id': ?clientMessageId},
+        data: {
+          'body': body,
+          'client_message_id': ?clientMessageId,
+          'reply_to_id': ?replyToId,
+          'attachment_id': ?attachmentId,
+        },
       ),
     );
     return ChatMessage.fromJson(response.data ?? const {});
@@ -1231,6 +1377,63 @@ class ApiClient {
       ),
     );
     return MessagePage.fromJson(response.data ?? const {});
+  }
+
+  Future<void> markMessagesDelivered(String matchId, List<String> ids) async {
+    await _send(
+      () =>
+          dio.post('/matches/$matchId/delivered/', data: {'message_ids': ids}),
+    );
+  }
+
+  Future<ChatActivity> chatActivity(
+    String matchId,
+    String sessionId, {
+    required bool active,
+    bool typing = false,
+  }) async {
+    final response = await _send(
+      () => dio.put<Map<String, dynamic>>(
+        '/matches/$matchId/activity/',
+        data: {'session_id': sessionId, 'active': active, 'typing': typing},
+      ),
+    );
+    return ChatActivity.fromJson(response.data ?? const {});
+  }
+
+  Future<Map<String, dynamic>> requestChatUpload(
+    String matchId, {
+    required String kind,
+    required String contentType,
+    required int sizeBytes,
+  }) async {
+    final response = await _send(
+      () => dio.post<Map<String, dynamic>>(
+        '/matches/$matchId/attachments/upload-url/',
+        data: {
+          'kind': kind,
+          'content_type': contentType,
+          'size_bytes': sizeBytes,
+        },
+      ),
+    );
+    return response.data ?? const {};
+  }
+
+  Future<ChatAttachment> completeChatUpload(String matchId, String id) async {
+    final response = await _send(
+      () => dio.post<Map<String, dynamic>>(
+        '/matches/$matchId/attachments/$id/complete/',
+      ),
+    );
+    return ChatAttachment.fromJson(response.data ?? const {});
+  }
+
+  Future<ChatAttachment> chatAttachment(String matchId, String id) async {
+    final response = await _send(
+      () => dio.get<Map<String, dynamic>>('/matches/$matchId/attachments/$id/'),
+    );
+    return ChatAttachment.fromJson(response.data ?? const {});
   }
 
   Future<int> markMessagesRead(
@@ -1279,7 +1482,10 @@ class ApiClient {
 
   Future<SafetyOverview> safetyOverview() async {
     final response = await _send(
-      () => dio.get<Map<String, dynamic>>('/me/safety/'),
+      () => dio.get<Map<String, dynamic>>(
+        '/me/safety/',
+        queryParameters: {'view': 'active'},
+      ),
     );
     return SafetyOverview.fromJson(response.data ?? const {});
   }
@@ -1435,6 +1641,18 @@ class ApiClient {
     int? maxDistanceKm,
     int? minAge,
     int? maxAge,
+  }) async => (await discoveryPage(
+    cursor: cursor,
+    maxDistanceKm: maxDistanceKm,
+    minAge: minAge,
+    maxAge: maxAge,
+  )).items;
+
+  Future<DiscoveryPage> discoveryPage({
+    String? cursor,
+    int? maxDistanceKm,
+    int? minAge,
+    int? maxAge,
   }) async {
     final response = await _send(
       () => dio.get<Map<String, dynamic>>(
@@ -1448,9 +1666,12 @@ class ApiClient {
       ),
     );
     final raw = response.data?['items'] as List<dynamic>? ?? const [];
-    return raw
-        .map((item) => DiscoveryCard.fromJson(item as Map<String, dynamic>))
-        .toList();
+    return DiscoveryPage(
+      items: raw
+          .map((item) => DiscoveryCard.fromJson(item as Map<String, dynamic>))
+          .toList(),
+      nextCursor: response.data?['next_cursor'] as String?,
+    );
   }
 
   Future<DiscoveryCard> discoveryProfile(String profileId) async {

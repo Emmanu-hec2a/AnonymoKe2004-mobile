@@ -615,6 +615,9 @@ void main() {
       final initial = api.reads;
       await tester.pump(const Duration(seconds: 16));
       await tester.pumpAndSettle();
+      expect(api.reads, initial);
+      await tester.pump(const Duration(seconds: 105));
+      await tester.pumpAndSettle();
       expect(api.reads, greaterThan(initial));
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
       final paused = api.reads;
@@ -631,7 +634,7 @@ void main() {
     api
       ..failProfile = true
       ..profileErrorStatus = 401;
-    await tester.pump(const Duration(seconds: 16));
+    await tester.pump(const Duration(seconds: 121));
     await tester.pumpAndSettle();
     expect(find.text('Quiet Comet'), findsNothing);
     expect(find.text('Sign in'), findsOneWidget);
