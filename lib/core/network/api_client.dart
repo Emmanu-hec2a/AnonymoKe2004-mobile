@@ -441,6 +441,27 @@ class SentLikesPage {
   );
 }
 
+class PurchaseStatus {
+  const PurchaseStatus({
+    required this.id,
+    required this.status,
+    this.productCode = '',
+    this.resultCode,
+  });
+  final String id;
+  final String status;
+  final String productCode;
+  final int? resultCode;
+  bool get isPending => status == 'pending';
+  bool get isCompleted => status == 'completed';
+  factory PurchaseStatus.fromJson(Map<String, dynamic> json) => PurchaseStatus(
+    id: json['id'] as String? ?? '',
+    status: json['status'] as String? ?? 'pending',
+    productCode: json['product_code'] as String? ?? '',
+    resultCode: (json['result_code'] as num?)?.toInt(),
+  );
+}
+
 class ChatMessage {
   const ChatMessage({
     required this.messageId,
@@ -1291,6 +1312,14 @@ class ApiClient {
       ),
     );
     return response.data ?? const {};
+  }
+
+  /// Current state of a purchase: pending, completed, failed or expired.
+  Future<PurchaseStatus> purchaseStatus(String purchaseId) async {
+    final response = await _send(
+      () => dio.get<Map<String, dynamic>>('/purchases/$purchaseId/'),
+    );
+    return PurchaseStatus.fromJson(response.data ?? const {});
   }
 
   Future<List<MatchSummary>> matches() async {
